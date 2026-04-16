@@ -124,12 +124,8 @@ public class AlphaZeroTrainer {
             String opponent;
             if (selfPlayOnly) {
                 opponent = "AZ";
-            } else if (gameIdx % 3 == 0) {
-                opponent = "SIMPLE";
-            } else if (gameIdx % 3 == 1) {
-                opponent = "OSLA";
             } else {
-                opponent = "AZ";
+                opponent = opts.trainingOpponent(gameIdx);
             }
 
             int episode = trainingEpisode(opts, iteration, gameIdx);
@@ -164,6 +160,7 @@ public class AlphaZeroTrainer {
         obj.put("opponent_calls", opts.opponentFmCalls);
         obj.put("search_depth", opts.searchDepth);
         obj.put("opponent", opponent);
+        obj.put("training_opponents", opts.trainingOpponentsCsv);
 
         JSONArray bots = new JSONArray();
         bots.put("AZ");
@@ -352,6 +349,7 @@ public class AlphaZeroTrainer {
         String trajectoryPath = "training/alphazero-sft-trajectories.jsonl";
         String referenceModelPath = "models/alphazero-value.tsv";
         String referencePolicyPath = "models/alphazero-policy.tsv";
+        String trainingOpponentsCsv = "SIMPLE,OSLA,AZ";
         String promptId = "alphazero-training-sft-v1";
         String actionFormat = "compact-full";
         int iterations = 4;
@@ -403,6 +401,7 @@ public class AlphaZeroTrainer {
                 else if ("trajectory-data".equals(key)) opts.trajectoryPath = value;
                 else if ("reference-model".equals(key)) opts.referenceModelPath = value;
                 else if ("reference-policy".equals(key)) opts.referencePolicyPath = value;
+                else if ("training-opponents".equals(key)) opts.trainingOpponentsCsv = value;
                 else if ("prompt-id".equals(key)) opts.promptId = value;
                 else if ("action-format".equals(key)) opts.actionFormat = value;
                 else if ("iterations".equals(key)) opts.iterations = Integer.parseInt(value);
@@ -440,6 +439,25 @@ public class AlphaZeroTrainer {
                 }
             }
             return opts;
+        }
+
+        String trainingOpponent(int gameIdx) {
+            ArrayList<String> opponents = csv(trainingOpponentsCsv);
+            if (opponents.isEmpty()) {
+                opponents.add("AZ");
+            }
+            return opponents.get(Math.floorMod(gameIdx, opponents.size()));
+        }
+
+        private static ArrayList<String> csv(String value) {
+            ArrayList<String> out = new ArrayList<>();
+            for (String part : value.split(",")) {
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    out.add(trimmed);
+                }
+            }
+            return out;
         }
     }
 }
