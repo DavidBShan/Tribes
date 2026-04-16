@@ -33,6 +33,8 @@ public class AlphaZeroTrainer {
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
+        System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
+                + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
         if (opts.recordTrajectories) {
             System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
@@ -177,9 +179,9 @@ public class AlphaZeroTrainer {
 
             int episode = trainingEpisode(opts, iteration, gameIdx);
             JSONObject setup = setupMetadata(opts, iteration, gameIdx, seed, opponent);
-            Agent a = recording("AZ", newAlphaZero(seed, opts), opts, trajectoryWriter,
+            Agent a = recording("AZ", newAlphaZero(seed, opts, true), opts, trajectoryWriter,
                     setup, episode, 0, seed + 1);
-            Agent b = recording(opponent, newAgent(opponent, seed + 2, opts), opts, trajectoryWriter,
+            Agent b = recording(opponent, newAgent(opponent, seed + 2, opts, true), opts, trajectoryWriter,
                     setup, episode, 1, seed + 3);
             runOneGame(a, b, seed, seed + 17);
             System.out.println("data game " + (gameIdx + 1) + "/" + nGames + " vs " + opponent);
@@ -208,6 +210,8 @@ public class AlphaZeroTrainer {
         obj.put("search_depth", opts.searchDepth);
         obj.put("opponent", opponent);
         obj.put("training_opponents", opts.trainingOpponentsCsv);
+        obj.put("root_noise_fraction", opts.rootNoiseFraction);
+        obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
 
         JSONArray bots = new JSONArray();
         bots.put("AZ");
@@ -281,8 +285,12 @@ public class AlphaZeroTrainer {
     }
 
     private static Agent newAgent(String name, long seed, Options opts) {
+        return newAgent(name, seed, opts, false);
+    }
+
+    private static Agent newAgent(String name, long seed, Options opts, boolean training) {
         if ("AZ".equalsIgnoreCase(name) || "ALPHAZERO".equalsIgnoreCase(name)) {
-            return newAlphaZero(seed, opts);
+            return newAlphaZero(seed, opts, training);
         }
         if ("REFERENCE_AZ".equalsIgnoreCase(name)) {
             return newReferenceAlphaZero(seed, opts);
@@ -304,6 +312,10 @@ public class AlphaZeroTrainer {
     }
 
     private static AlphaZeroAgent newAlphaZero(long seed, Options opts) {
+        return newAlphaZero(seed, opts, false);
+    }
+
+    private static AlphaZeroAgent newAlphaZero(long seed, Options opts, boolean training) {
         AZParams params = new AZParams();
         params.modelPath = opts.modelPath;
         params.policyPath = opts.policyPath;
@@ -312,6 +324,8 @@ public class AlphaZeroTrainer {
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
+        params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
+        params.rootDirichletAlpha = opts.rootDirichletAlpha;
         return new AlphaZeroAgent(seed, params);
     }
 
@@ -324,6 +338,8 @@ public class AlphaZeroTrainer {
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
+        params.rootNoiseFraction = 0.0;
+        params.rootDirichletAlpha = opts.rootDirichletAlpha;
         return new AlphaZeroAgent(seed, params);
     }
 
@@ -470,6 +486,8 @@ public class AlphaZeroTrainer {
         double sampleProbability = 0.35;
         double trajectorySampleProbability = 1.0;
         double heuristicBlend = 0.35;
+        double rootNoiseFraction = 0.0;
+        double rootDirichletAlpha = 0.30;
         long seed = 20260416L;
         boolean continueAfterTarget = false;
         boolean selfPlayAfterTarget = true;
@@ -524,6 +542,8 @@ public class AlphaZeroTrainer {
                 else if ("sample".equals(key)) opts.sampleProbability = Double.parseDouble(value);
                 else if ("trajectory-sample".equals(key)) opts.trajectorySampleProbability = Double.parseDouble(value);
                 else if ("heuristic-blend".equals(key)) opts.heuristicBlend = Double.parseDouble(value);
+                else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
+                else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
                 else if ("seed".equals(key)) opts.seed = Long.parseLong(value);
                 else if ("continue-after-target".equals(key)) opts.continueAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-after-target".equals(key)) opts.selfPlayAfterTarget = Boolean.parseBoolean(value);

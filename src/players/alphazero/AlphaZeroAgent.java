@@ -356,6 +356,54 @@ public class AlphaZeroAgent extends Agent {
         return (input + params.epsilon) * (1.0 + params.epsilon * (rnd.nextDouble() - 0.5));
     }
 
+    private double[] dirichletNoise(int n, double alpha) {
+        double[] out = new double[n];
+        double sum = 0.0;
+        double shape = Math.max(1e-3, alpha);
+        for (int i = 0; i < n; i++) {
+            out[i] = sampleGamma(shape);
+            sum += out[i];
+        }
+
+        if (sum <= 0.0) {
+            double uniform = 1.0 / n;
+            for (int i = 0; i < n; i++) {
+                out[i] = uniform;
+            }
+            return out;
+        }
+
+        for (int i = 0; i < n; i++) {
+            out[i] /= sum;
+        }
+        return out;
+    }
+
+    private double sampleGamma(double shape) {
+        if (shape < 1.0) {
+            double boosted = sampleGamma(shape + 1.0);
+            return boosted * Math.pow(Math.max(1e-12, rnd.nextDouble()), 1.0 / shape);
+        }
+
+        double d = shape - 1.0 / 3.0;
+        double c = 1.0 / Math.sqrt(9.0 * d);
+        while (true) {
+            double x = rnd.nextGaussian();
+            double v = 1.0 + c * x;
+            if (v <= 0.0) {
+                continue;
+            }
+            v = v * v * v;
+            double u = rnd.nextDouble();
+            if (u < 1.0 - 0.0331 * x * x * x * x) {
+                return d * v;
+            }
+            if (Math.log(u) < 0.5 * x * x + d * (1.0 - v + Math.log(v))) {
+                return d * v;
+            }
+        }
+    }
+
     @Override
     public Agent copy() {
         return new AlphaZeroAgent(seed, params);
@@ -430,9 +478,20 @@ public class AlphaZeroAgent extends Agent {
             }
 
             for (int i = 0; i < keep; i++) {
+                priors[i] = sum > 0.0 ? priors[i] / sum : 1.0 / keep;
+            }
+
+            if (depth == 0 && params.rootNoiseFraction > 0.0 && keep > 1) {
+                double[] noise = dirichletNoise(keep, params.rootDirichletAlpha);
+                double noiseFraction = Math.max(0.0, Math.min(1.0, params.rootNoiseFraction));
+                for (int i = 0; i < keep; i++) {
+                    priors[i] = (1.0 - noiseFraction) * priors[i] + noiseFraction * noise[i];
+                }
+            }
+
+            for (int i = 0; i < keep; i++) {
                 ChildSpec spec = specs.get(i);
-                double p = sum > 0.0 ? priors[i] / sum : 1.0 / keep;
-                children.add(new Node(this, spec.state, spec.action, p, depth + 1));
+                children.add(new Node(this, spec.state, spec.action, priors[i], depth + 1));
             }
 
             expanded = true;
