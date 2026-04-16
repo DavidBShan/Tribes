@@ -4,12 +4,15 @@ import core.Constants;
 import core.Types;
 import core.actors.Tribe;
 import core.game.Game;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import players.Agent;
 import players.RandomAgent;
 import players.SimpleAgent;
 import players.osla.OSLAParams;
 import players.osla.OneStepLookAheadAgent;
 
+import java.io.IOException;
 import java.util.ArrayList;
 
 import static core.Types.GAME_MODE.CAPITALS;
@@ -25,52 +28,76 @@ public class AlphaZeroTrainer {
         System.out.println("AlphaZero-style value training");
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
+        if (opts.recordTrajectories) {
+            System.out.println("sftTrajectories=" + opts.trajectoryPath);
+        }
 
         boolean targetReached = false;
-        for (int iteration = 1; iteration <= opts.iterations; iteration++) {
-            System.out.println("=== iteration " + iteration + " ===");
-            runTrainingGames(opts, iteration, opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget));
+        long startedAt = System.nanoTime();
+        try (SftTrajectoryWriter trajectoryWriter = newTrajectoryWriter(opts)) {
+            for (int iteration = 1; iteration <= opts.iterations; iteration++) {
+                System.out.println("=== iteration " + iteration + " ===");
+                runTrainingGames(opts, iteration,
+                        opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget), trajectoryWriter);
 
-            ArrayList<ValueTrainingExample> examples = ValueDataset.load(opts.dataPath, opts.maxTrainingExamples);
-            LinearValueFunction vf = LinearValueFunction.load(opts.modelPath);
-            if (!examples.isEmpty()) {
-                double loss = vf.train(examples, opts.epochs, opts.learningRate, opts.l2, opts.seed + iteration);
-                vf.save(opts.modelPath);
-                System.out.printf("trained value on %d examples; mse=%.5f%n", examples.size(), loss);
-            } else {
-                System.out.println("trained value on 0 examples; skipped");
-            }
-
-            ArrayList<PolicyTrainingExample> policyExamples = PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples);
-            LinearPolicyFunction policy = LinearPolicyFunction.load(opts.policyPath);
-            if (!policyExamples.isEmpty()) {
-                double policyLoss = policy.train(policyExamples, opts.policyEpochs, opts.policyLearningRate, opts.l2, opts.seed + 991 * iteration);
-                policy.save(opts.policyPath);
-                System.out.printf("trained policy on %d examples; xent=%.5f%n", policyExamples.size(), policyLoss);
-            } else {
-                System.out.println("trained policy on 0 examples; skipped");
-            }
-
-            MatchResult simple = evaluate(opts, "SIMPLE", opts.evalGames, opts.seed + 100000L * iteration);
-            MatchResult osla = evaluate(opts, "OSLA", opts.evalGames, opts.seed + 200000L * iteration);
-            System.out.println(simple);
-            System.out.println(osla);
-
-            if (simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate) {
-                targetReached = true;
-                System.out.printf("target reached: SIMPLE %.2f, OSLA %.2f%n",
-                        simple.winRate(), osla.winRate());
-                if (!opts.continueAfterTarget) {
-                    break;
+                ArrayList<ValueTrainingExample> examples = ValueDataset.load(opts.dataPath, opts.maxTrainingExamples);
+                LinearValueFunction vf = LinearValueFunction.load(opts.modelPath);
+                if (!examples.isEmpty()) {
+                    double loss = vf.train(examples, opts.epochs, opts.learningRate, opts.l2, opts.seed + iteration);
+                    vf.save(opts.modelPath);
+                    System.out.printf("trained value on %d examples; mse=%.5f%n", examples.size(), loss);
+                } else {
+                    System.out.println("trained value on 0 examples; skipped");
                 }
-                System.out.println("continuing with self-play while keeping SIMPLE/OSLA as regression baselines");
-            }
-        }
 
-        if (!targetReached) {
-            System.out.printf("target not reached within %d iterations; continue with more --iterations/--games%n",
-                    opts.iterations);
+                ArrayList<PolicyTrainingExample> policyExamples = PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples);
+                LinearPolicyFunction policy = LinearPolicyFunction.load(opts.policyPath);
+                if (!policyExamples.isEmpty()) {
+                    double policyLoss = policy.train(policyExamples, opts.policyEpochs, opts.policyLearningRate, opts.l2, opts.seed + 991 * iteration);
+                    policy.save(opts.policyPath);
+                    System.out.printf("trained policy on %d examples; xent=%.5f%n", policyExamples.size(), policyLoss);
+                } else {
+                    System.out.println("trained policy on 0 examples; skipped");
+                }
+
+                MatchResult simple = evaluate(opts, "SIMPLE", opts.evalGames, opts.seed + 100000L * iteration);
+                MatchResult osla = evaluate(opts, "OSLA", opts.evalGames, opts.seed + 200000L * iteration);
+                System.out.println(simple);
+                System.out.println(osla);
+
+                if (simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate) {
+                    targetReached = true;
+                    System.out.printf("target reached: SIMPLE %.2f, OSLA %.2f%n",
+                            simple.winRate(), osla.winRate());
+                    if (!opts.continueAfterTarget) {
+                        break;
+                    }
+                    System.out.println("continuing with self-play while keeping SIMPLE/OSLA as regression baselines");
+                }
+            }
+
+            if (trajectoryWriter != null) {
+                trajectoryWriter.writeManifest(opts.iterations, opts.gamesPerIteration, elapsedSeconds(startedAt));
+                System.out.printf("wrote %d SFT trajectory examples to %s (%d skipped)%n",
+                        trajectoryWriter.count(), opts.trajectoryPath, trajectoryWriter.skipped());
+            }
+
+            if (!targetReached) {
+                System.out.printf("target not reached within %d iterations; continue with more --iterations/--games%n",
+                        opts.iterations);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write SFT trajectory data", e);
         }
+    }
+
+    private static SftTrajectoryWriter newTrajectoryWriter(Options opts) throws IOException {
+        if (!opts.recordTrajectories) {
+            return null;
+        }
+        return new SftTrajectoryWriter(opts.trajectoryPath, opts.promptId,
+                SftTrajectoryWriter.DEFAULT_SYSTEM_PROMPT, opts.maxPromptActions,
+                opts.actionFormat, opts.trajectoryFlushEvery);
     }
 
     private static void configureHeadless(Options opts) {
@@ -81,7 +108,8 @@ public class AlphaZeroTrainer {
         Constants.MAX_TURNS_CAPITALS = opts.maxTurns;
     }
 
-    private static void runTrainingGames(Options opts, int iteration, boolean selfPlayOnly) {
+    private static void runTrainingGames(Options opts, int iteration, boolean selfPlayOnly,
+                                         SftTrajectoryWriter trajectoryWriter) {
         int nGames = selfPlayOnly && !opts.selfPlayOnly ? opts.selfPlayGamesAfterTarget : opts.gamesPerIteration;
         for (int gameIdx = 0; gameIdx < nGames; gameIdx++) {
             long seed = opts.seed + iteration * 10000L + gameIdx * 31L;
@@ -96,16 +124,58 @@ public class AlphaZeroTrainer {
                 opponent = "AZ";
             }
 
-            Agent a = recording(newAlphaZero(seed, opts), opts, seed + 1);
-            Agent b = recording(newAgent(opponent, seed + 2, opts), opts, seed + 3);
+            int episode = trainingEpisode(opts, iteration, gameIdx);
+            JSONObject setup = setupMetadata(opts, iteration, gameIdx, seed, opponent);
+            Agent a = recording("AZ", newAlphaZero(seed, opts), opts, trajectoryWriter,
+                    setup, episode, 0, seed + 1);
+            Agent b = recording(opponent, newAgent(opponent, seed + 2, opts), opts, trajectoryWriter,
+                    setup, episode, 1, seed + 3);
             runOneGame(a, b, seed, seed + 17);
             System.out.println("data game " + (gameIdx + 1) + "/" + nGames + " vs " + opponent);
         }
     }
 
-    private static RecordingAgent recording(Agent agent, Options opts, long seed) {
-        return new RecordingAgent(agent, opts.dataPath, opts.policyDataPath,
-                opts.sampleProbability, opts.maxExamplesPerGame, seed);
+    private static int trainingEpisode(Options opts, int iteration, int gameIdx) {
+        return (iteration - 1) * Math.max(opts.gamesPerIteration, opts.selfPlayGamesAfterTarget) + gameIdx;
+    }
+
+    private static JSONObject setupMetadata(Options opts, int iteration, int gameIdx, long seed, String opponent) {
+        JSONObject obj = new JSONObject();
+        obj.put("episode", trainingEpisode(opts, iteration, gameIdx));
+        obj.put("iteration", iteration);
+        obj.put("game_index", gameIdx);
+        obj.put("level_seed", seed);
+        obj.put("game_seed", seed + 17);
+        obj.put("game_mode", CAPITALS.name());
+        obj.put("players", "az_training");
+        obj.put("map", "procedural");
+        obj.put("random_tribes", false);
+        obj.put("value_model", opts.modelPath);
+        obj.put("policy_model", opts.policyPath);
+        obj.put("search_calls", opts.searchFmCalls);
+        obj.put("opponent_calls", opts.opponentFmCalls);
+        obj.put("search_depth", opts.searchDepth);
+        obj.put("opponent", opponent);
+
+        JSONArray bots = new JSONArray();
+        bots.put("AZ");
+        bots.put(opponent);
+        obj.put("seat_bots", bots);
+
+        JSONArray tribeNames = new JSONArray();
+        tribeNames.put(XIN_XI.name());
+        tribeNames.put(IMPERIUS.name());
+        obj.put("seat_tribes", tribeNames);
+        obj.put("target_tribe", "recorded_seat");
+        return obj;
+    }
+
+    private static RecordingAgent recording(String botName, Agent agent, Options opts,
+                                            SftTrajectoryWriter trajectoryWriter, JSONObject setupMetadata,
+                                            int episode, int seat, long seed) {
+        return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, trajectoryWriter,
+                setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
+                opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, seed);
     }
 
     private static MatchResult evaluate(Options opts, String opponent, int evalGames, long seedBase) {
@@ -131,6 +201,10 @@ public class AlphaZeroTrainer {
         game.init(players, levelSeed, new Types.TRIBE[]{XIN_XI, IMPERIUS}, gameSeed, CAPITALS);
         game.run(null, null);
         return game;
+    }
+
+    private static double elapsedSeconds(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000_000.0;
     }
 
     private static Types.RESULT resultForTribe(Game game, Types.TRIBE tribeType) {
@@ -216,6 +290,9 @@ public class AlphaZeroTrainer {
         String policyPath = "models/alphazero-policy.tsv";
         String dataPath = "training/alphazero-value-data.tsv";
         String policyDataPath = "training/alphazero-policy-data.tsv";
+        String trajectoryPath = "training/alphazero-sft-trajectories.jsonl";
+        String promptId = "alphazero-training-sft-v1";
+        String actionFormat = "compact-full";
         int iterations = 4;
         int gamesPerIteration = 6;
         int selfPlayGamesAfterTarget = 6;
@@ -230,16 +307,21 @@ public class AlphaZeroTrainer {
         int searchDepth = 18;
         int maxActionsPerNode = 32;
         int prefilterActions = 80;
+        int maxPromptActions = 96;
+        int maxTrajectoriesPerGame = 240;
+        int trajectoryFlushEvery = 64;
         double learningRate = 0.015;
         double policyLearningRate = 0.010;
         double l2 = 0.0001;
         double targetWinRate = 0.55;
         double sampleProbability = 0.35;
+        double trajectorySampleProbability = 1.0;
         double heuristicBlend = 0.35;
         long seed = 20260416L;
         boolean continueAfterTarget = false;
         boolean selfPlayAfterTarget = true;
         boolean selfPlayOnly = false;
+        boolean recordTrajectories = true;
 
         static Options parse(String[] args) {
             Options opts = new Options();
@@ -255,6 +337,9 @@ public class AlphaZeroTrainer {
                 else if ("policy".equals(key)) opts.policyPath = value;
                 else if ("data".equals(key)) opts.dataPath = value;
                 else if ("policy-data".equals(key)) opts.policyDataPath = value;
+                else if ("trajectory-data".equals(key)) opts.trajectoryPath = value;
+                else if ("prompt-id".equals(key)) opts.promptId = value;
+                else if ("action-format".equals(key)) opts.actionFormat = value;
                 else if ("iterations".equals(key)) opts.iterations = Integer.parseInt(value);
                 else if ("games".equals(key)) opts.gamesPerIteration = Integer.parseInt(value);
                 else if ("self-play-games".equals(key)) opts.selfPlayGamesAfterTarget = Integer.parseInt(value);
@@ -268,16 +353,21 @@ public class AlphaZeroTrainer {
                 else if ("depth".equals(key)) opts.searchDepth = Integer.parseInt(value);
                 else if ("max-actions".equals(key)) opts.maxActionsPerNode = Integer.parseInt(value);
                 else if ("prefilter".equals(key)) opts.prefilterActions = Integer.parseInt(value);
+                else if ("max-prompt-actions".equals(key)) opts.maxPromptActions = Integer.parseInt(value);
+                else if ("max-trajectories-per-game".equals(key)) opts.maxTrajectoriesPerGame = Integer.parseInt(value);
+                else if ("trajectory-flush-every".equals(key)) opts.trajectoryFlushEvery = Integer.parseInt(value);
                 else if ("lr".equals(key)) opts.learningRate = Double.parseDouble(value);
                 else if ("policy-lr".equals(key)) opts.policyLearningRate = Double.parseDouble(value);
                 else if ("l2".equals(key)) opts.l2 = Double.parseDouble(value);
                 else if ("target".equals(key)) opts.targetWinRate = Double.parseDouble(value);
                 else if ("sample".equals(key)) opts.sampleProbability = Double.parseDouble(value);
+                else if ("trajectory-sample".equals(key)) opts.trajectorySampleProbability = Double.parseDouble(value);
                 else if ("heuristic-blend".equals(key)) opts.heuristicBlend = Double.parseDouble(value);
                 else if ("seed".equals(key)) opts.seed = Long.parseLong(value);
                 else if ("continue-after-target".equals(key)) opts.continueAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-after-target".equals(key)) opts.selfPlayAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-only".equals(key)) opts.selfPlayOnly = Boolean.parseBoolean(value);
+                else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else {
                     throw new IllegalArgumentException("Unknown option --" + key);
                 }

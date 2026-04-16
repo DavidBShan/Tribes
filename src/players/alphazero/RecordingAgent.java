@@ -2,6 +2,7 @@ package players.alphazero;
 
 import core.actions.Action;
 import core.game.GameState;
+import org.json.JSONObject;
 import players.Agent;
 import utils.ElapsedCpuTimer;
 
@@ -11,22 +12,47 @@ import java.util.Random;
 public class RecordingAgent extends Agent {
 
     private final Agent delegate;
+    private final String botName;
     private final String datasetPath;
     private final String policyDatasetPath;
+    private final SftTrajectoryWriter trajectoryWriter;
+    private final JSONObject setupMetadata;
+    private final int episode;
+    private final int seat;
     private final double sampleProbability;
+    private final double trajectorySampleProbability;
     private final int maxExamplesPerGame;
+    private final int maxTrajectoriesPerGame;
     private final Random rnd;
+    private final Random trajectoryRnd;
     private final ArrayList<ValueTrainingExample> pending;
+    private int localActionIndex = 0;
 
     public RecordingAgent(Agent delegate, String datasetPath, String policyDatasetPath,
                           double sampleProbability, int maxExamplesPerGame, long seed) {
+        this(delegate, "unknown", datasetPath, policyDatasetPath, null, new JSONObject(),
+                -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, seed);
+    }
+
+    public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
+                          SftTrajectoryWriter trajectoryWriter, JSONObject setupMetadata, int episode, int seat,
+                          double sampleProbability, int maxExamplesPerGame,
+                          double trajectorySampleProbability, int maxTrajectoriesPerGame, long seed) {
         super(seed);
         this.delegate = delegate;
+        this.botName = botName;
         this.datasetPath = datasetPath;
         this.policyDatasetPath = policyDatasetPath;
+        this.trajectoryWriter = trajectoryWriter;
+        this.setupMetadata = setupMetadata == null ? new JSONObject() : new JSONObject(setupMetadata.toString());
+        this.episode = episode;
+        this.seat = seat;
         this.sampleProbability = sampleProbability;
         this.maxExamplesPerGame = maxExamplesPerGame;
+        this.trajectorySampleProbability = trajectorySampleProbability;
+        this.maxTrajectoriesPerGame = maxTrajectoriesPerGame;
         this.rnd = new Random(seed);
+        this.trajectoryRnd = new Random(seed ^ 0x5DEECE66DL);
         this.pending = new ArrayList<>();
     }
 
@@ -44,13 +70,26 @@ public class RecordingAgent extends Agent {
             pending.add(new ValueTrainingExample(0.0, features));
         }
 
+        long started = System.nanoTime();
         Action action = delegate.act(gs, ect);
+        long elapsedMicros = (System.nanoTime() - started) / 1000L;
         if (sampled && action != null) {
             ArrayList<PolicyTrainingExample> policyExamples = new ArrayList<>();
             policyExamples.add(new PolicyTrainingExample(action.getActionType().ordinal(), features));
             PolicyDataset.append(policyDatasetPath, policyExamples);
         }
+        if (shouldRecordTrajectory() && action != null) {
+            trajectoryWriter.writeSample(episode, localActionIndex, botName, seat, playerID, setupMetadata,
+                    gs, action, elapsedMicros, allPlayerIDs);
+        }
+        localActionIndex++;
         return action;
+    }
+
+    private boolean shouldRecordTrajectory() {
+        return trajectoryWriter != null
+                && localActionIndex < maxTrajectoriesPerGame
+                && trajectoryRnd.nextDouble() <= trajectorySampleProbability;
     }
 
     @Override
@@ -75,6 +114,8 @@ public class RecordingAgent extends Agent {
         if (delegateCopy == null) {
             delegateCopy = delegate;
         }
-        return new RecordingAgent(delegateCopy, datasetPath, policyDatasetPath, sampleProbability, maxExamplesPerGame, seed);
+        return new RecordingAgent(delegateCopy, botName, datasetPath, policyDatasetPath, trajectoryWriter,
+                setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
+                trajectorySampleProbability, maxTrajectoriesPerGame, seed);
     }
 }
