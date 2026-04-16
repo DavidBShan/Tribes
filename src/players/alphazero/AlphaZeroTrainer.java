@@ -13,6 +13,9 @@ import players.osla.OSLAParams;
 import players.osla.OneStepLookAheadAgent;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 
 import static core.Types.GAME_MODE.CAPITALS;
@@ -28,11 +31,14 @@ public class AlphaZeroTrainer {
         System.out.println("AlphaZero-style value training");
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
+        System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
+                + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         if (opts.recordTrajectories) {
             System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
 
         boolean targetReached = false;
+        CheckpointScore bestCheckpoint = null;
         long startedAt = System.nanoTime();
         try (SftTrajectoryWriter trajectoryWriter = newTrajectoryWriter(opts)) {
             for (int iteration = 1; iteration <= opts.iterations; iteration++) {
@@ -70,6 +76,20 @@ public class AlphaZeroTrainer {
                     System.out.println(reference);
                 }
 
+                CheckpointScore checkpoint = CheckpointScore.from(simple, osla, reference);
+                if (bestCheckpoint == null || checkpoint.betterThan(bestCheckpoint)) {
+                    saveBestCheckpoint(opts);
+                    bestCheckpoint = checkpoint;
+                    System.out.printf("best checkpoint updated: score=%.3f marginFloor=%.1f marginAvg=%.1f%n",
+                            checkpoint.score, checkpoint.marginFloor, checkpoint.marginAverage);
+                } else if (opts.restoreBestOnRegression) {
+                    restoreBestCheckpoint(opts);
+                    System.out.printf("restored best checkpoint: currentScore=%.3f currentMarginFloor=%.1f "
+                                    + "bestScore=%.3f bestMarginFloor=%.1f%n",
+                            checkpoint.score, checkpoint.marginFloor, bestCheckpoint.score,
+                            bestCheckpoint.marginFloor);
+                }
+
                 boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
                 if (simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate
                         && referencePassed) {
@@ -95,8 +115,35 @@ public class AlphaZeroTrainer {
                         opts.iterations);
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to write SFT trajectory data", e);
+            throw new RuntimeException("AlphaZero trainer I/O failure", e);
         }
+    }
+
+    private static void saveBestCheckpoint(Options opts) throws IOException {
+        copyFile(opts.modelPath, opts.bestModelPath);
+        copyFile(opts.policyPath, opts.bestPolicyPath);
+    }
+
+    private static void restoreBestCheckpoint(Options opts) throws IOException {
+        if (Files.exists(Path.of(opts.bestModelPath))) {
+            copyFile(opts.bestModelPath, opts.modelPath);
+        }
+        if (Files.exists(Path.of(opts.bestPolicyPath))) {
+            copyFile(opts.bestPolicyPath, opts.policyPath);
+        }
+    }
+
+    private static void copyFile(String source, String target) throws IOException {
+        Path sourcePath = Path.of(source);
+        Path targetPath = Path.of(target);
+        if (sourcePath.toAbsolutePath().normalize().equals(targetPath.toAbsolutePath().normalize())) {
+            return;
+        }
+        Path parent = targetPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Files.copy(sourcePath, targetPath, StandardCopyOption.REPLACE_EXISTING);
     }
 
     private static SftTrajectoryWriter newTrajectoryWriter(Options opts) throws IOException {
@@ -329,21 +376,67 @@ public class AlphaZeroTrainer {
             return n == 0 ? 0.0 : (double) wins / n;
         }
 
+        double avgMargin() {
+            int n = wins + losses + incomplete;
+            return n == 0 ? 0.0 : (double) marginTotal / n;
+        }
+
         @Override
         public String toString() {
             int n = wins + losses + incomplete;
             double avgScore = n == 0 ? 0.0 : (double) scoreTotal / n;
             double avgOpponentScore = n == 0 ? 0.0 : (double) opponentScoreTotal / n;
-            double avgMargin = n == 0 ? 0.0 : (double) marginTotal / n;
             return String.format("eval %s vs %s: W=%d L=%d I=%d N=%d winRate=%.3f avgScore=%.1f avgOppScore=%.1f avgMargin=%.1f",
                     agent, opponent, wins, losses, incomplete, n, winRate(),
-                    avgScore, avgOpponentScore, avgMargin);
+                    avgScore, avgOpponentScore, avgMargin());
+        }
+    }
+
+    private static class CheckpointScore {
+        final double score;
+        final double marginFloor;
+        final double marginAverage;
+
+        CheckpointScore(double score, double marginFloor, double marginAverage) {
+            this.score = score;
+            this.marginFloor = marginFloor;
+            this.marginAverage = marginAverage;
+        }
+
+        static CheckpointScore from(MatchResult simple, MatchResult osla, MatchResult reference) {
+            double score = Math.min(simple.winRate(), osla.winRate());
+            double marginFloor = Math.min(simple.avgMargin(), osla.avgMargin());
+            double marginAverage = (simple.avgMargin() + osla.avgMargin()) / 2.0;
+            if (reference != null) {
+                score = Math.min(score, reference.winRate());
+                marginFloor = Math.min(marginFloor, reference.avgMargin());
+                marginAverage = (simple.avgMargin() + osla.avgMargin() + reference.avgMargin()) / 3.0;
+            }
+            return new CheckpointScore(score, marginFloor, marginAverage);
+        }
+
+        boolean betterThan(CheckpointScore other) {
+            if (score > other.score + 1e-9) {
+                return true;
+            }
+            if (score < other.score - 1e-9) {
+                return false;
+            }
+            if (marginFloor > other.marginFloor + 1e-9) {
+                return true;
+            }
+            if (marginFloor < other.marginFloor - 1e-9) {
+                return false;
+            }
+            return marginAverage > other.marginAverage + 1e-9;
         }
     }
 
     private static class Options {
         String modelPath = "models/alphazero-value.tsv";
         String policyPath = "models/alphazero-policy.tsv";
+        String bestModelPath = "";
+        String bestPolicyPath = "";
         String dataPath = "training/alphazero-value-data.tsv";
         String policyDataPath = "training/alphazero-policy-data.tsv";
         String trajectoryPath = "training/alphazero-sft-trajectories.jsonl";
@@ -383,6 +476,7 @@ public class AlphaZeroTrainer {
         boolean selfPlayOnly = false;
         boolean recordTrajectories = true;
         boolean evalReference = false;
+        boolean restoreBestOnRegression = true;
 
         static Options parse(String[] args) {
             Options opts = new Options();
@@ -396,6 +490,8 @@ public class AlphaZeroTrainer {
 
                 if ("model".equals(key)) opts.modelPath = value;
                 else if ("policy".equals(key)) opts.policyPath = value;
+                else if ("best-model".equals(key)) opts.bestModelPath = value;
+                else if ("best-policy".equals(key)) opts.bestPolicyPath = value;
                 else if ("data".equals(key)) opts.dataPath = value;
                 else if ("policy-data".equals(key)) opts.policyDataPath = value;
                 else if ("trajectory-data".equals(key)) opts.trajectoryPath = value;
@@ -434,11 +530,31 @@ public class AlphaZeroTrainer {
                 else if ("self-play-only".equals(key)) opts.selfPlayOnly = Boolean.parseBoolean(value);
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
+                else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
                 else {
                     throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
+            opts.resolveDerivedPaths();
             return opts;
+        }
+
+        private void resolveDerivedPaths() {
+            if (bestModelPath == null || bestModelPath.trim().isEmpty()) {
+                bestModelPath = derivedBestPath(modelPath);
+            }
+            if (bestPolicyPath == null || bestPolicyPath.trim().isEmpty()) {
+                bestPolicyPath = derivedBestPath(policyPath);
+            }
+        }
+
+        private static String derivedBestPath(String path) {
+            int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            int dot = path.lastIndexOf('.');
+            if (dot > slash) {
+                return path.substring(0, dot) + "-best" + path.substring(dot);
+            }
+            return path + "-best";
         }
 
         String trainingOpponent(int gameIdx) {
