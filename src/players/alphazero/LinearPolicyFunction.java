@@ -77,15 +77,20 @@ public class LinearPolicyFunction {
             double loss = 0.0;
 
             for (PolicyTrainingExample example : examples) {
-                if (example.actionType < 0 || example.actionType >= weights.length) {
+                if (!example.hasValidTarget(weights.length)) {
                     continue;
                 }
 
                 double[] probs = predict(example.features);
-                loss += -Math.log(Math.max(1e-9, probs[example.actionType]));
+                for (int action = 0; action < weights.length; action++) {
+                    double target = example.targetFor(action, weights.length);
+                    if (target > 0.0) {
+                        loss += -target * Math.log(Math.max(1e-9, probs[action]));
+                    }
+                }
 
                 for (int action = 0; action < weights.length; action++) {
-                    double target = action == example.actionType ? 1.0 : 0.0;
+                    double target = example.targetFor(action, weights.length);
                     double error = probs[action] - target;
                     for (int i = 0; i < StateFeatures.FEATURE_COUNT; i++) {
                         double grad = error * example.features[i] + l2 * weights[action][i];

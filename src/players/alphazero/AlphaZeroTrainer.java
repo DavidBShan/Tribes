@@ -31,6 +31,7 @@ public class AlphaZeroTrainer {
         System.out.println("AlphaZero-style value training");
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
+        System.out.println("policyTargets=" + opts.policyTargetMode);
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
@@ -210,6 +211,7 @@ public class AlphaZeroTrainer {
         obj.put("search_depth", opts.searchDepth);
         obj.put("opponent", opponent);
         obj.put("training_opponents", opts.trainingOpponentsCsv);
+        obj.put("policy_targets", opts.policyTargetMode);
         obj.put("root_noise_fraction", opts.rootNoiseFraction);
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
 
@@ -231,7 +233,7 @@ public class AlphaZeroTrainer {
                                             int episode, int seat, long seed) {
         return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, trajectoryWriter,
                 setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
-                opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, seed);
+                opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode, seed);
     }
 
     private static MatchResult evaluate(Options opts, String opponent, int evalGames, long seedBase) {
@@ -459,6 +461,7 @@ public class AlphaZeroTrainer {
         String referenceModelPath = "models/alphazero-value.tsv";
         String referencePolicyPath = "models/alphazero-policy.tsv";
         String trainingOpponentsCsv = "SIMPLE,OSLA,AZ";
+        String policyTargetMode = "action";
         String promptId = "alphazero-training-sft-v1";
         String actionFormat = "compact-full";
         int iterations = 4;
@@ -516,6 +519,7 @@ public class AlphaZeroTrainer {
                 else if ("reference-model".equals(key)) opts.referenceModelPath = value;
                 else if ("reference-policy".equals(key)) opts.referencePolicyPath = value;
                 else if ("training-opponents".equals(key)) opts.trainingOpponentsCsv = value;
+                else if ("policy-targets".equals(key)) opts.policyTargetMode = value;
                 else if ("prompt-id".equals(key)) opts.promptId = value;
                 else if ("action-format".equals(key)) opts.actionFormat = value;
                 else if ("iterations".equals(key)) opts.iterations = Integer.parseInt(value);

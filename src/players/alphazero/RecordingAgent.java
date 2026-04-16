@@ -15,6 +15,7 @@ public class RecordingAgent extends Agent {
     private final String botName;
     private final String datasetPath;
     private final String policyDatasetPath;
+    private final String policyTargetMode;
     private final SftTrajectoryWriter trajectoryWriter;
     private final JSONObject setupMetadata;
     private final int episode;
@@ -31,18 +32,20 @@ public class RecordingAgent extends Agent {
     public RecordingAgent(Agent delegate, String datasetPath, String policyDatasetPath,
                           double sampleProbability, int maxExamplesPerGame, long seed) {
         this(delegate, "unknown", datasetPath, policyDatasetPath, null, new JSONObject(),
-                -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, seed);
+                -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action", seed);
     }
 
     public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
                           SftTrajectoryWriter trajectoryWriter, JSONObject setupMetadata, int episode, int seat,
                           double sampleProbability, int maxExamplesPerGame,
-                          double trajectorySampleProbability, int maxTrajectoriesPerGame, long seed) {
+                          double trajectorySampleProbability, int maxTrajectoriesPerGame,
+                          String policyTargetMode, long seed) {
         super(seed);
         this.delegate = delegate;
         this.botName = botName;
         this.datasetPath = datasetPath;
         this.policyDatasetPath = policyDatasetPath;
+        this.policyTargetMode = policyTargetMode == null ? "action" : policyTargetMode;
         this.trajectoryWriter = trajectoryWriter;
         this.setupMetadata = setupMetadata == null ? new JSONObject() : new JSONObject(setupMetadata.toString());
         this.episode = episode;
@@ -75,7 +78,7 @@ public class RecordingAgent extends Agent {
         long elapsedMicros = (System.nanoTime() - started) / 1000L;
         if (sampled && action != null) {
             ArrayList<PolicyTrainingExample> policyExamples = new ArrayList<>();
-            policyExamples.add(new PolicyTrainingExample(action.getActionType().ordinal(), features));
+            policyExamples.add(policyExample(action, features));
             PolicyDataset.append(policyDatasetPath, policyExamples);
         }
         if (shouldRecordTrajectory() && action != null) {
@@ -84,6 +87,16 @@ public class RecordingAgent extends Agent {
         }
         localActionIndex++;
         return action;
+    }
+
+    private PolicyTrainingExample policyExample(Action action, double[] features) {
+        if ("visit".equalsIgnoreCase(policyTargetMode) && delegate instanceof AlphaZeroAgent) {
+            double[] targets = ((AlphaZeroAgent) delegate).lastVisitPolicyTargets();
+            if (targets != null) {
+                return new PolicyTrainingExample(targets, features);
+            }
+        }
+        return new PolicyTrainingExample(action.getActionType().ordinal(), features);
     }
 
     private boolean shouldRecordTrajectory() {
@@ -116,6 +129,6 @@ public class RecordingAgent extends Agent {
         }
         return new RecordingAgent(delegateCopy, botName, datasetPath, policyDatasetPath, trajectoryWriter,
                 setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
-                trajectorySampleProbability, maxTrajectoriesPerGame, seed);
+                trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode, seed);
     }
 }

@@ -1,5 +1,7 @@
 package players.alphazero;
 
+import core.Types;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -38,7 +40,17 @@ public final class PolicyDataset {
             }
 
             for (PolicyTrainingExample example : examples) {
-                writer.write(Integer.toString(example.actionType));
+                if (example.targetProbs != null) {
+                    writer.write("soft:");
+                    for (int i = 0; i < example.targetProbs.length; i++) {
+                        if (i > 0) {
+                            writer.write(',');
+                        }
+                        writer.write(Double.toString(example.targetProbs[i]));
+                    }
+                } else {
+                    writer.write(Integer.toString(example.actionType));
+                }
                 for (double feature : example.features) {
                     writer.write('\t');
                     writer.write(Double.toString(feature));
@@ -71,12 +83,16 @@ public final class PolicyDataset {
                     continue;
                 }
 
-                int actionType = Integer.parseInt(parts[0]);
                 double[] features = new double[StateFeatures.FEATURE_COUNT];
                 for (int i = 0; i < features.length; i++) {
                     features[i] = Double.parseDouble(parts[i + 1]);
                 }
-                examples.add(new PolicyTrainingExample(actionType, features));
+                if (parts[0].startsWith("soft:")) {
+                    examples.add(new PolicyTrainingExample(parseSoftTarget(parts[0]), features));
+                } else {
+                    int actionType = Integer.parseInt(parts[0]);
+                    examples.add(new PolicyTrainingExample(actionType, features));
+                }
 
                 if (maxExamples > 0 && examples.size() >= maxExamples) {
                     break;
@@ -88,5 +104,19 @@ public final class PolicyDataset {
         }
 
         return examples;
+    }
+
+    private static double[] parseSoftTarget(String value) {
+        double[] target = new double[Types.ACTION.values().length];
+        String payload = value.substring("soft:".length());
+        if (payload.trim().isEmpty()) {
+            return target;
+        }
+
+        String[] parts = payload.split(",");
+        for (int i = 0; i < Math.min(parts.length, target.length); i++) {
+            target[i] = Double.parseDouble(parts[i]);
+        }
+        return target;
     }
 }

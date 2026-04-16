@@ -28,6 +28,7 @@ public class AlphaZeroAgent extends Agent {
     private int lastTick = -1;
     private int lastActiveTribe = -1;
     private int actionsThisTurn = 0;
+    private double[] lastVisitPolicy;
 
     public AlphaZeroAgent(long seed) {
         this(seed, new AZParams());
@@ -50,6 +51,7 @@ public class AlphaZeroAgent extends Agent {
 
     @Override
     public Action act(GameState gs, ElapsedCpuTimer ect) {
+        lastVisitPolicy = null;
         ArrayList<Action> allActions = gs.getAllAvailableActions();
         if (allActions.size() == 1) {
             return allActions.get(0);
@@ -109,6 +111,7 @@ public class AlphaZeroAgent extends Agent {
         }
 
         Node selected = root.bestChildByVisits();
+        lastVisitPolicy = root.visitPolicyByActionType();
         Node advised = root.findChild(advisorAction);
         if (advised != null && selected != null && selected != advised) {
             double selectedQ = selected.meanValue();
@@ -122,6 +125,13 @@ public class AlphaZeroAgent extends Agent {
         }
 
         return bestImmediateAction(gs, rootActions);
+    }
+
+    public double[] lastVisitPolicyTargets() {
+        if (lastVisitPolicy == null) {
+            return null;
+        }
+        return lastVisitPolicy.clone();
     }
 
     private Action safeAdvisorAction(GameState gs, ElapsedCpuTimer ect) {
@@ -541,6 +551,30 @@ public class AlphaZeroAgent extends Agent {
             }
 
             return selected;
+        }
+
+        double[] visitPolicyByActionType() {
+            double[] policy = new double[Types.ACTION.values().length];
+            double total = 0.0;
+            for (Node child : children) {
+                if (child.actionFromParent == null || child.visits <= 0) {
+                    continue;
+                }
+                int actionType = child.actionFromParent.getActionType().ordinal();
+                if (actionType < 0 || actionType >= policy.length) {
+                    continue;
+                }
+                policy[actionType] += child.visits;
+                total += child.visits;
+            }
+
+            if (total <= 0.0) {
+                return null;
+            }
+            for (int i = 0; i < policy.length; i++) {
+                policy[i] /= total;
+            }
+            return policy;
         }
 
         Node findChild(Action action) {
