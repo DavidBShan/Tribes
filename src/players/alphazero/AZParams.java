@@ -19,6 +19,8 @@ public class AZParams extends AlgParams {
     public double positionBlend = 0.20;
     public double rootNoiseFraction = 0.0;
     public double rootDirichletAlpha = 0.30;
+    public double visitSamplingTemperature = 0.0;
+    public int visitSamplingUntilTick = 0;
     public int forceTurnAfterActions = 10;
     public String modelPath = "models/alphazero-value.tsv";
     public String policyPath = "models/alphazero-policy.tsv";

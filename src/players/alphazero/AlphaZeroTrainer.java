@@ -36,6 +36,8 @@ public class AlphaZeroTrainer {
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
+        System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
+                + " untilTick=" + opts.visitSamplingUntilTick);
         if (opts.recordTrajectories) {
             System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
@@ -214,6 +216,8 @@ public class AlphaZeroTrainer {
         obj.put("policy_targets", opts.policyTargetMode);
         obj.put("root_noise_fraction", opts.rootNoiseFraction);
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
+        obj.put("visit_sampling_temperature", opts.visitSamplingTemperature);
+        obj.put("visit_sampling_until_tick", opts.visitSamplingUntilTick);
 
         JSONArray bots = new JSONArray();
         bots.put("AZ");
@@ -328,6 +332,8 @@ public class AlphaZeroTrainer {
         params.heuristicBlend = opts.heuristicBlend;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
+        params.visitSamplingTemperature = training ? opts.visitSamplingTemperature : 0.0;
+        params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
     }
 
@@ -342,6 +348,8 @@ public class AlphaZeroTrainer {
         params.heuristicBlend = opts.heuristicBlend;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
+        params.visitSamplingTemperature = 0.0;
+        params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
     }
 
@@ -491,6 +499,8 @@ public class AlphaZeroTrainer {
         double heuristicBlend = 0.35;
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
+        double visitSamplingTemperature = 0.0;
+        int visitSamplingUntilTick = 0;
         long seed = 20260416L;
         boolean continueAfterTarget = false;
         boolean selfPlayAfterTarget = true;
@@ -548,6 +558,8 @@ public class AlphaZeroTrainer {
                 else if ("heuristic-blend".equals(key)) opts.heuristicBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
+                else if ("visit-sampling-temp".equals(key)) opts.visitSamplingTemperature = Double.parseDouble(value);
+                else if ("visit-sampling-until".equals(key)) opts.visitSamplingUntilTick = Integer.parseInt(value);
                 else if ("seed".equals(key)) opts.seed = Long.parseLong(value);
                 else if ("continue-after-target".equals(key)) opts.continueAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-after-target".equals(key)) opts.selfPlayAfterTarget = Boolean.parseBoolean(value);

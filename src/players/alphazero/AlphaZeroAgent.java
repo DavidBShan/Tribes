@@ -110,10 +110,18 @@ public class AlphaZeroAgent extends Agent {
             }
         }
 
-        Node selected = root.bestChildByVisits();
         lastVisitPolicy = root.visitPolicyByActionType();
+        Node selected = root.bestChildByVisits();
+        boolean sampledSelection = false;
+        if (shouldSampleFromVisits(gs)) {
+            Node sampled = root.sampleChildByVisits(params.visitSamplingTemperature);
+            if (sampled != null) {
+                selected = sampled;
+                sampledSelection = true;
+            }
+        }
         Node advised = root.findChild(advisorAction);
-        if (advised != null && selected != null && selected != advised) {
+        if (!sampledSelection && advised != null && selected != null && selected != advised) {
             double selectedQ = selected.meanValue();
             double advisedQ = advised.meanValue();
             if (selectedQ < advisedQ + params.advisorOverrideMargin) {
@@ -125,6 +133,13 @@ public class AlphaZeroAgent extends Agent {
         }
 
         return bestImmediateAction(gs, rootActions);
+    }
+
+    private boolean shouldSampleFromVisits(GameState gs) {
+        if (params.visitSamplingTemperature <= 0.0) {
+            return false;
+        }
+        return params.visitSamplingUntilTick <= 0 || gs.getTick() <= params.visitSamplingUntilTick;
     }
 
     public double[] lastVisitPolicyTargets() {
@@ -551,6 +566,32 @@ public class AlphaZeroAgent extends Agent {
             }
 
             return selected;
+        }
+
+        Node sampleChildByVisits(double temperature) {
+            double temp = Math.max(1e-6, temperature);
+            double total = 0.0;
+            double[] weights = new double[children.size()];
+            for (int i = 0; i < children.size(); i++) {
+                Node child = children.get(i);
+                if (child.visits <= 0) {
+                    continue;
+                }
+                weights[i] = Math.pow(child.visits, 1.0 / temp);
+                total += weights[i];
+            }
+            if (total <= 0.0) {
+                return null;
+            }
+
+            double pick = rnd.nextDouble() * total;
+            for (int i = 0; i < children.size(); i++) {
+                pick -= weights[i];
+                if (pick <= 0.0) {
+                    return children.get(i);
+                }
+            }
+            return children.isEmpty() ? null : children.get(children.size() - 1);
         }
 
         double[] visitPolicyByActionType() {
