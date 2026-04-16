@@ -64,11 +64,19 @@ public class AlphaZeroTrainer {
                 MatchResult osla = evaluate(opts, "OSLA", opts.evalGames, opts.seed + 200000L * iteration);
                 System.out.println(simple);
                 System.out.println(osla);
+                MatchResult reference = null;
+                if (opts.evalReference) {
+                    reference = evaluate(opts, "REFERENCE_AZ", opts.evalGames, opts.seed + 300000L * iteration);
+                    System.out.println(reference);
+                }
 
-                if (simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate) {
+                boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
+                if (simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate
+                        && referencePassed) {
                     targetReached = true;
-                    System.out.printf("target reached: SIMPLE %.2f, OSLA %.2f%n",
-                            simple.winRate(), osla.winRate());
+                    System.out.printf("target reached: SIMPLE %.2f, OSLA %.2f%s%n",
+                            simple.winRate(), osla.winRate(),
+                            reference == null ? "" : String.format(", REFERENCE_AZ %.2f", reference.winRate()));
                     if (!opts.continueAfterTarget) {
                         break;
                     }
@@ -184,10 +192,10 @@ public class AlphaZeroTrainer {
             long seed = seedBase + i * 997L;
 
             Game first = runOneGame(newAlphaZero(seed + 1, opts), newAgent(opponent, seed + 2, opts), seed, seed + 13);
-            result.add(resultForTribe(first, XIN_XI));
+            result.add(outcomeForTribe(first, XIN_XI));
 
             Game second = runOneGame(newAgent(opponent, seed + 3, opts), newAlphaZero(seed + 4, opts), seed, seed + 29);
-            result.add(resultForTribe(second, IMPERIUS));
+            result.add(outcomeForTribe(second, IMPERIUS));
         }
         return result;
     }
@@ -207,20 +215,33 @@ public class AlphaZeroTrainer {
         return (System.nanoTime() - startedAt) / 1_000_000_000.0;
     }
 
-    private static Types.RESULT resultForTribe(Game game, Types.TRIBE tribeType) {
+    private static EvalOutcome outcomeForTribe(Game game, Types.TRIBE tribeType) {
         Types.RESULT[] results = game.getWinnerStatus();
         Tribe[] tribes = game.getBoard().getTribes();
+        int[] scores = game.getScores();
         for (int i = 0; i < tribes.length; i++) {
             if (tribes[i].getType() == tribeType) {
-                return results[i];
+                int bestOther = Integer.MIN_VALUE;
+                for (int j = 0; j < scores.length; j++) {
+                    if (j != i) {
+                        bestOther = Math.max(bestOther, scores[j]);
+                    }
+                }
+                if (bestOther == Integer.MIN_VALUE) {
+                    bestOther = 0;
+                }
+                return new EvalOutcome(results[i], scores[i], bestOther);
             }
         }
-        return Types.RESULT.LOSS;
+        return new EvalOutcome(Types.RESULT.LOSS, 0, 0);
     }
 
     private static Agent newAgent(String name, long seed, Options opts) {
         if ("AZ".equalsIgnoreCase(name) || "ALPHAZERO".equalsIgnoreCase(name)) {
             return newAlphaZero(seed, opts);
+        }
+        if ("REFERENCE_AZ".equalsIgnoreCase(name)) {
+            return newReferenceAlphaZero(seed, opts);
         }
         if ("SIMPLE".equalsIgnoreCase(name)) {
             return new SimpleAgent(seed);
@@ -250,22 +271,56 @@ public class AlphaZeroTrainer {
         return new AlphaZeroAgent(seed, params);
     }
 
+    private static AlphaZeroAgent newReferenceAlphaZero(long seed, Options opts) {
+        AZParams params = new AZParams();
+        params.modelPath = opts.referenceModelPath;
+        params.policyPath = opts.referencePolicyPath;
+        params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
+        params.ROLLOUT_LENGTH = opts.searchDepth;
+        params.maxActionsPerNode = opts.maxActionsPerNode;
+        params.prefilterActions = opts.prefilterActions;
+        params.heuristicBlend = opts.heuristicBlend;
+        return new AlphaZeroAgent(seed, params);
+    }
+
+    private static class EvalOutcome {
+        final Types.RESULT result;
+        final int score;
+        final int opponentScore;
+
+        EvalOutcome(Types.RESULT result, int score, int opponentScore) {
+            this.result = result;
+            this.score = score;
+            this.opponentScore = opponentScore;
+        }
+
+        int margin() {
+            return score - opponentScore;
+        }
+    }
+
     private static class MatchResult {
         final String agent;
         final String opponent;
         int wins;
         int losses;
         int incomplete;
+        int scoreTotal;
+        int opponentScoreTotal;
+        int marginTotal;
 
         MatchResult(String agent, String opponent) {
             this.agent = agent;
             this.opponent = opponent;
         }
 
-        void add(Types.RESULT result) {
-            if (result == Types.RESULT.WIN) {
+        void add(EvalOutcome outcome) {
+            scoreTotal += outcome.score;
+            opponentScoreTotal += outcome.opponentScore;
+            marginTotal += outcome.margin();
+            if (outcome.result == Types.RESULT.WIN) {
                 wins++;
-            } else if (result == Types.RESULT.LOSS) {
+            } else if (outcome.result == Types.RESULT.LOSS) {
                 losses++;
             } else {
                 incomplete++;
@@ -280,8 +335,12 @@ public class AlphaZeroTrainer {
         @Override
         public String toString() {
             int n = wins + losses + incomplete;
-            return String.format("eval %s vs %s: W=%d L=%d I=%d N=%d winRate=%.3f",
-                    agent, opponent, wins, losses, incomplete, n, winRate());
+            double avgScore = n == 0 ? 0.0 : (double) scoreTotal / n;
+            double avgOpponentScore = n == 0 ? 0.0 : (double) opponentScoreTotal / n;
+            double avgMargin = n == 0 ? 0.0 : (double) marginTotal / n;
+            return String.format("eval %s vs %s: W=%d L=%d I=%d N=%d winRate=%.3f avgScore=%.1f avgOppScore=%.1f avgMargin=%.1f",
+                    agent, opponent, wins, losses, incomplete, n, winRate(),
+                    avgScore, avgOpponentScore, avgMargin);
         }
     }
 
@@ -291,6 +350,8 @@ public class AlphaZeroTrainer {
         String dataPath = "training/alphazero-value-data.tsv";
         String policyDataPath = "training/alphazero-policy-data.tsv";
         String trajectoryPath = "training/alphazero-sft-trajectories.jsonl";
+        String referenceModelPath = "models/alphazero-value.tsv";
+        String referencePolicyPath = "models/alphazero-policy.tsv";
         String promptId = "alphazero-training-sft-v1";
         String actionFormat = "compact-full";
         int iterations = 4;
@@ -310,6 +371,7 @@ public class AlphaZeroTrainer {
         int maxPromptActions = 96;
         int maxTrajectoriesPerGame = 240;
         int trajectoryFlushEvery = 64;
+        int referenceSearchFmCalls = 0;
         double learningRate = 0.015;
         double policyLearningRate = 0.010;
         double l2 = 0.0001;
@@ -322,6 +384,7 @@ public class AlphaZeroTrainer {
         boolean selfPlayAfterTarget = true;
         boolean selfPlayOnly = false;
         boolean recordTrajectories = true;
+        boolean evalReference = false;
 
         static Options parse(String[] args) {
             Options opts = new Options();
@@ -338,6 +401,8 @@ public class AlphaZeroTrainer {
                 else if ("data".equals(key)) opts.dataPath = value;
                 else if ("policy-data".equals(key)) opts.policyDataPath = value;
                 else if ("trajectory-data".equals(key)) opts.trajectoryPath = value;
+                else if ("reference-model".equals(key)) opts.referenceModelPath = value;
+                else if ("reference-policy".equals(key)) opts.referencePolicyPath = value;
                 else if ("prompt-id".equals(key)) opts.promptId = value;
                 else if ("action-format".equals(key)) opts.actionFormat = value;
                 else if ("iterations".equals(key)) opts.iterations = Integer.parseInt(value);
@@ -356,6 +421,7 @@ public class AlphaZeroTrainer {
                 else if ("max-prompt-actions".equals(key)) opts.maxPromptActions = Integer.parseInt(value);
                 else if ("max-trajectories-per-game".equals(key)) opts.maxTrajectoriesPerGame = Integer.parseInt(value);
                 else if ("trajectory-flush-every".equals(key)) opts.trajectoryFlushEvery = Integer.parseInt(value);
+                else if ("reference-calls".equals(key)) opts.referenceSearchFmCalls = Integer.parseInt(value);
                 else if ("lr".equals(key)) opts.learningRate = Double.parseDouble(value);
                 else if ("policy-lr".equals(key)) opts.policyLearningRate = Double.parseDouble(value);
                 else if ("l2".equals(key)) opts.l2 = Double.parseDouble(value);
@@ -368,6 +434,7 @@ public class AlphaZeroTrainer {
                 else if ("self-play-after-target".equals(key)) opts.selfPlayAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-only".equals(key)) opts.selfPlayOnly = Boolean.parseBoolean(value);
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
+                else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else {
                     throw new IllegalArgumentException("Unknown option --" + key);
                 }
