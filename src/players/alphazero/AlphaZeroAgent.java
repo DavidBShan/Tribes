@@ -60,7 +60,7 @@ public class AlphaZeroAgent extends Agent {
         this.policyFunction = LinearPolicyFunction.load(params.policyPath);
         this.heuristic = params.getStateHeuristic(playerID, allPlayerIDs);
         this.rootState = gs;
-        this.advisorAction = advisor.act(gs, ect);
+        this.advisorAction = safeAdvisorAction(gs, ect);
 
         Action urgent = urgentTacticalAction(gs, allActions);
         if (urgent != null) {
@@ -122,6 +122,18 @@ public class AlphaZeroAgent extends Agent {
         }
 
         return bestImmediateAction(gs, rootActions);
+    }
+
+    private Action safeAdvisorAction(GameState gs, ElapsedCpuTimer ect) {
+        try {
+            Action action = advisor.act(gs, ect);
+            if (action != null && action.isFeasible(gs)) {
+                return action;
+            }
+        } catch (Throwable ignored) {
+            // Advisor is a tactical hint, not a required part of the search.
+        }
+        return null;
     }
 
     private void updateTurnCounter(GameState gs) {
