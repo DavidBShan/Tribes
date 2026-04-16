@@ -38,6 +38,9 @@ public class AlphaZeroTrainer {
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
                 + " untilTick=" + opts.visitSamplingUntilTick);
+        System.out.println("valuePositionBlend=" + opts.valuePositionBlend
+                + " searchPositionBlend=" + opts.positionBlend
+                + " advisorMargin=" + opts.advisorOverrideMargin);
         if (opts.recordTrajectories) {
             System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
@@ -218,6 +221,9 @@ public class AlphaZeroTrainer {
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
         obj.put("visit_sampling_temperature", opts.visitSamplingTemperature);
         obj.put("visit_sampling_until_tick", opts.visitSamplingUntilTick);
+        obj.put("value_position_blend", opts.valuePositionBlend);
+        obj.put("search_position_blend", opts.positionBlend);
+        obj.put("advisor_override_margin", opts.advisorOverrideMargin);
 
         JSONArray bots = new JSONArray();
         bots.put("AZ");
@@ -237,7 +243,8 @@ public class AlphaZeroTrainer {
                                             int episode, int seat, long seed) {
         return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, trajectoryWriter,
                 setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
-                opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode, seed);
+                opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
+                opts.valuePositionBlend, seed);
     }
 
     private static MatchResult evaluate(Options opts, String opponent, int evalGames, long seedBase) {
@@ -330,6 +337,8 @@ public class AlphaZeroTrainer {
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
+        params.positionBlend = opts.positionBlend;
+        params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.visitSamplingTemperature = training ? opts.visitSamplingTemperature : 0.0;
@@ -346,6 +355,8 @@ public class AlphaZeroTrainer {
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
+        params.positionBlend = opts.positionBlend;
+        params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.visitSamplingTemperature = 0.0;
@@ -497,6 +508,9 @@ public class AlphaZeroTrainer {
         double sampleProbability = 0.35;
         double trajectorySampleProbability = 1.0;
         double heuristicBlend = 0.35;
+        double positionBlend = 0.20;
+        double advisorOverrideMargin = 0.08;
+        double valuePositionBlend = 0.0;
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
         double visitSamplingTemperature = 0.0;
@@ -556,6 +570,9 @@ public class AlphaZeroTrainer {
                 else if ("sample".equals(key)) opts.sampleProbability = Double.parseDouble(value);
                 else if ("trajectory-sample".equals(key)) opts.trajectorySampleProbability = Double.parseDouble(value);
                 else if ("heuristic-blend".equals(key)) opts.heuristicBlend = Double.parseDouble(value);
+                else if ("position-blend".equals(key)) opts.positionBlend = Double.parseDouble(value);
+                else if ("advisor-margin".equals(key)) opts.advisorOverrideMargin = Double.parseDouble(value);
+                else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
                 else if ("visit-sampling-temp".equals(key)) opts.visitSamplingTemperature = Double.parseDouble(value);
