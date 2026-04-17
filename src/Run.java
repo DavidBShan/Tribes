@@ -6,6 +6,8 @@ import gui.GUI;
 import gui.WindowInput;
 import players.emcts.EMCTSAgent;
 import players.emcts.EMCTSParams;
+import players.alphazero.AZParams;
+import players.alphazero.AlphaZeroAgent;
 import players.heuristics.PrunePortfolioHeuristic;
 import players.mc.MCParams;
 import players.mc.MonteCarloAgent;
@@ -70,7 +72,8 @@ class Run {
         RHEA,
         OEP,
         EMCTS,
-        PORTFOLIO_MCTS
+        PORTFOLIO_MCTS,
+        ALPHAZERO
     }
 
     public static double K_INIT_MULT = 0.5;
@@ -102,6 +105,11 @@ class Run {
             case "OEP": return Run.PlayerType.OEP;
             case "pMCTS": return Run.PlayerType.PORTFOLIO_MCTS;
             case "EMCTS": return Run.PlayerType.EMCTS;
+            case "AZ":
+            case "AlphaZero":
+            case "ALPHAZERO":
+            case "AlphaZeroPUCT":
+                return Run.PlayerType.ALPHAZERO;
         }
         throw new Exception("Error: unrecognized Player Type: " + arg);
     }
@@ -193,6 +201,12 @@ class Run {
                 emctsParams.stop_type = emctsParams.STOP_FMCALLS;
                 emctsParams.heuristic_method = emctsParams.DIFF_HEURISTIC;
                 return new EMCTSAgent(agentSeed,emctsParams);
+            case ALPHAZERO:
+                AZParams azParams = new AZParams();
+                azParams.stop_type = azParams.STOP_FMCALLS;
+                azParams.heuristic_method = azParams.DIFF_HEURISTIC;
+                azParams.ROLLOUT_LENGTH = MAX_LENGTH > 0 ? MAX_LENGTH : azParams.ROLLOUT_LENGTH;
+                return new AlphaZeroAgent(agentSeed, azParams);
             case RHEA:
                 RHEAParams rheaParams = new RHEAParams();
                 rheaParams.stop_type = rheaParams.STOP_FMCALLS;
