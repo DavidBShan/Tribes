@@ -25,6 +25,7 @@ public class RecordingAgent extends Agent {
     private final double trajectorySampleProbability;
     private final double valuePositionBlend;
     private final double terminalPositionBlend;
+    private final double rankValueBlend;
     private final int maxExamplesPerGame;
     private final int maxTrajectoriesPerGame;
     private final boolean recordValueExamples;
@@ -37,7 +38,7 @@ public class RecordingAgent extends Agent {
                           double sampleProbability, int maxExamplesPerGame, long seed) {
         this(delegate, "unknown", datasetPath, policyDatasetPath, null, null, new JSONObject(),
                 -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action", 0.0, 0.0,
-                true, seed);
+                0.0, true, seed);
     }
 
     public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
@@ -46,7 +47,7 @@ public class RecordingAgent extends Agent {
                           double sampleProbability, int maxExamplesPerGame,
                           double trajectorySampleProbability, int maxTrajectoriesPerGame,
                           String policyTargetMode, double valuePositionBlend, double terminalPositionBlend,
-                          boolean recordValueExamples, long seed) {
+                          double rankValueBlend, boolean recordValueExamples, long seed) {
         super(seed);
         this.delegate = delegate;
         this.botName = botName;
@@ -64,6 +65,7 @@ public class RecordingAgent extends Agent {
         this.maxTrajectoriesPerGame = maxTrajectoriesPerGame;
         this.valuePositionBlend = Math.max(0.0, Math.min(1.0, valuePositionBlend));
         this.terminalPositionBlend = Math.max(0.0, Math.min(1.0, terminalPositionBlend));
+        this.rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
         this.recordValueExamples = recordValueExamples;
         this.rnd = new Random(seed);
         this.trajectoryRnd = new Random(seed ^ 0x5DEECE66DL);
@@ -133,7 +135,7 @@ public class RecordingAgent extends Agent {
             return;
         }
 
-        double label = StateFeatures.outcomeLabel(gs, playerID, allPlayerIDs);
+        double label = StateFeatures.outcomeLabel(gs, playerID, allPlayerIDs, rankValueBlend);
         if (terminalPositionBlend > 0.0) {
             double terminalPositionLabel = StateFeatures.positionValue(gs, playerID, allPlayerIDs);
             label = StateFeatures.clamp((1.0 - terminalPositionBlend) * label
@@ -158,6 +160,6 @@ public class RecordingAgent extends Agent {
         return new RecordingAgent(delegateCopy, botName, datasetPath, policyDatasetPath, actionPolicyDatasetPath,
                 trajectoryWriter, setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
                 trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode,
-                valuePositionBlend, terminalPositionBlend, recordValueExamples, seed);
+                valuePositionBlend, terminalPositionBlend, rankValueBlend, recordValueExamples, seed);
     }
 }
