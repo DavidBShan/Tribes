@@ -80,14 +80,15 @@ public final class StateFeatures {
         Types.RESULT result = finalState.getTribeWinStatus(playerID);
         double margin = scoreMargin(finalState, playerID, allIds);
         double marginValue = Math.tanh(margin / 12000.0);
+        double survivalValue = terminalSurvivalValue(finalState, playerID, allIds);
 
         if (result == Types.RESULT.WIN) {
-            return clamp(0.80 + 0.20 * marginValue);
+            return clamp(0.72 + 0.16 * marginValue + 0.12 * survivalValue);
         }
         if (result == Types.RESULT.LOSS) {
-            return clamp(-0.80 + 0.20 * marginValue);
+            return clamp(-0.72 + 0.16 * marginValue + 0.12 * survivalValue);
         }
-        return clamp(marginValue);
+        return clamp(0.70 * marginValue + 0.30 * survivalValue);
     }
 
     public static double scoreMargin(GameState state, int playerID, ArrayList<Integer> allIds) {
@@ -137,6 +138,29 @@ public final class StateFeatures {
                 + 0.04 * (myUnits - bestOtherUnits)
                 + 0.00025 * (myScore - bestOtherScore)
                 + capitalSafety;
+        return Math.tanh(raw / 3.0);
+    }
+
+    private static double terminalSurvivalValue(GameState state, int playerID, ArrayList<Integer> allIds) {
+        double myCities = state.getCities(playerID).size();
+        if (myCities <= 0.0) {
+            return -1.0;
+        }
+
+        double bestOtherCities = 0.0;
+        double bestOtherProduction = 0.0;
+        for (Integer id : allIds) {
+            if (id == playerID) {
+                continue;
+            }
+            bestOtherCities = Math.max(bestOtherCities, state.getCities(id).size());
+            bestOtherProduction = Math.max(bestOtherProduction, state.getTribeProduction(id));
+        }
+
+        double cityDelta = myCities - bestOtherCities;
+        double productionDelta = state.getTribeProduction(playerID) - bestOtherProduction;
+        double capitalSafety = state.getTribe(playerID).controlsCapital() ? 0.9 : -1.4;
+        double raw = 1.25 * cityDelta + 0.05 * productionDelta + capitalSafety;
         return Math.tanh(raw / 3.0);
     }
 
