@@ -41,6 +41,7 @@ public class AlphaZeroTrainer {
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
                 + " untilTick=" + opts.visitSamplingUntilTick);
         System.out.println("valuePositionBlend=" + opts.valuePositionBlend
+                + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " searchPositionBlend=" + opts.positionBlend
                 + " advisorMargin=" + opts.advisorOverrideMargin);
         if (opts.recordTrajectories) {
@@ -260,6 +261,7 @@ public class AlphaZeroTrainer {
         obj.put("visit_sampling_temperature", opts.visitSamplingTemperature);
         obj.put("visit_sampling_until_tick", opts.visitSamplingUntilTick);
         obj.put("value_position_blend", opts.valuePositionBlend);
+        obj.put("terminal_position_blend", opts.terminalPositionBlend);
         obj.put("search_position_blend", opts.positionBlend);
         obj.put("advisor_override_margin", opts.advisorOverrideMargin);
         obj.put("reference_refresh_interval", opts.referenceRefreshInterval);
@@ -283,7 +285,7 @@ public class AlphaZeroTrainer {
         return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, trajectoryWriter,
                 setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
                 opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
-                opts.valuePositionBlend, seed);
+                opts.valuePositionBlend, opts.terminalPositionBlend, seed);
     }
 
     private static MatchResult evaluate(Options opts, String opponent, int evalGames, long seedBase) {
@@ -587,6 +589,7 @@ public class AlphaZeroTrainer {
         double positionBlend = 0.20;
         double advisorOverrideMargin = 0.08;
         double valuePositionBlend = 0.0;
+        double terminalPositionBlend = 0.0;
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
         double visitSamplingTemperature = 0.0;
@@ -651,6 +654,7 @@ public class AlphaZeroTrainer {
                 else if ("position-blend".equals(key)) opts.positionBlend = Double.parseDouble(value);
                 else if ("advisor-margin".equals(key)) opts.advisorOverrideMargin = Double.parseDouble(value);
                 else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
+                else if ("terminal-position-blend".equals(key)) opts.terminalPositionBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
                 else if ("visit-sampling-temp".equals(key)) opts.visitSamplingTemperature = Double.parseDouble(value);
