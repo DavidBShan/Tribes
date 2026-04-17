@@ -34,6 +34,7 @@ public class AlphaZeroTrainer {
         System.out.println("policyTargets=" + opts.policyTargetMode);
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
+        System.out.println("baselineInitialCheckpoint=" + opts.baselineInitialCheckpoint);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
@@ -49,6 +50,29 @@ public class AlphaZeroTrainer {
         CheckpointScore bestCheckpoint = null;
         long startedAt = System.nanoTime();
         try (SftTrajectoryWriter trajectoryWriter = newTrajectoryWriter(opts)) {
+            if (opts.baselineInitialCheckpoint) {
+                MatchResult simple = evaluate(opts, "SIMPLE", opts.evalGames, opts.seed + 910000000L);
+                MatchResult osla = evaluate(opts, "OSLA", opts.evalGames, opts.seed + 920000000L);
+                System.out.println("initial " + simple);
+                System.out.println("initial " + osla);
+                MatchResult reference = null;
+                if (opts.evalReference) {
+                    reference = evaluate(opts, "REFERENCE_AZ", opts.evalGames, opts.seed + 930000000L);
+                    System.out.println("initial " + reference);
+                }
+                bestCheckpoint = CheckpointScore.from(simple, osla, reference);
+                saveBestCheckpoint(opts);
+                System.out.printf("initial best checkpoint: score=%.3f marginFloor=%.1f marginAvg=%.1f%n",
+                        bestCheckpoint.score, bestCheckpoint.marginFloor, bestCheckpoint.marginAverage);
+
+                boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
+                targetReached = simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate
+                        && referencePassed;
+                if (targetReached) {
+                    System.out.println("initial checkpoint reached target; training starts in self-play mode");
+                }
+            }
+
             for (int iteration = 1; iteration <= opts.iterations; iteration++) {
                 System.out.println("=== iteration " + iteration + " ===");
                 runTrainingGames(opts, iteration,
@@ -522,6 +546,7 @@ public class AlphaZeroTrainer {
         boolean recordTrajectories = true;
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
+        boolean baselineInitialCheckpoint = false;
 
         static Options parse(String[] args) {
             Options opts = new Options();
@@ -584,6 +609,7 @@ public class AlphaZeroTrainer {
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
+                else if ("baseline-initial-checkpoint".equals(key)) opts.baselineInitialCheckpoint = Boolean.parseBoolean(value);
                 else {
                     throw new IllegalArgumentException("Unknown option --" + key);
                 }
