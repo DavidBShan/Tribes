@@ -256,6 +256,7 @@ public class AlphaZeroTrainer {
         obj.put("opponent", opponent);
         obj.put("training_opponents", opts.trainingOpponentsCsv);
         obj.put("policy_targets", opts.policyTargetMode);
+        obj.put("policy_logit_weight", opts.policyLogitWeight);
         obj.put("root_noise_fraction", opts.rootNoiseFraction);
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
         obj.put("visit_sampling_temperature", opts.visitSamplingTemperature);
@@ -380,6 +381,7 @@ public class AlphaZeroTrainer {
         params.heuristicBlend = opts.heuristicBlend;
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
+        params.policyLogitWeight = opts.policyLogitWeight;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.visitSamplingTemperature = training ? opts.visitSamplingTemperature : 0.0;
@@ -398,6 +400,7 @@ public class AlphaZeroTrainer {
         params.heuristicBlend = opts.heuristicBlend;
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
+        params.policyLogitWeight = opts.policyLogitWeight;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.visitSamplingTemperature = 0.0;
@@ -588,6 +591,7 @@ public class AlphaZeroTrainer {
         double heuristicBlend = 0.35;
         double positionBlend = 0.20;
         double advisorOverrideMargin = 0.08;
+        double policyLogitWeight = 0.06;
         double valuePositionBlend = 0.0;
         double terminalPositionBlend = 0.0;
         double rootNoiseFraction = 0.0;
@@ -653,6 +657,7 @@ public class AlphaZeroTrainer {
                 else if ("heuristic-blend".equals(key)) opts.heuristicBlend = Double.parseDouble(value);
                 else if ("position-blend".equals(key)) opts.positionBlend = Double.parseDouble(value);
                 else if ("advisor-margin".equals(key)) opts.advisorOverrideMargin = Double.parseDouble(value);
+                else if ("policy-logit-weight".equals(key)) opts.policyLogitWeight = Double.parseDouble(value);
                 else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
                 else if ("terminal-position-blend".equals(key)) opts.terminalPositionBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
