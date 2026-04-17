@@ -109,7 +109,11 @@ public final class StateFeatures {
         double myProduction = state.getTribeProduction(playerID);
         double myUnits = state.getUnits(playerID).size();
         double myScore = state.getScore(playerID);
-        double capital = state.getTribe(playerID).controlsCapital() ? 1.0 : -1.0;
+        boolean controlsCapital = state.getTribe(playerID).controlsCapital();
+
+        if (myCities <= 0.0) {
+            return -1.0;
+        }
 
         double bestOtherCities = 0.0;
         double bestOtherProduction = 0.0;
@@ -125,11 +129,14 @@ public final class StateFeatures {
             bestOtherScore = Math.max(bestOtherScore, state.getScore(id));
         }
 
-        double raw = 1.35 * (myCities - bestOtherCities)
+        double cityDeficit = Math.max(0.0, bestOtherCities - myCities);
+        double capitalSafety = controlsCapital ? 1.8 : -2.6;
+        double raw = 1.75 * (myCities - bestOtherCities)
+                - 0.75 * cityDeficit
                 + 0.08 * (myProduction - bestOtherProduction)
                 + 0.04 * (myUnits - bestOtherUnits)
                 + 0.00025 * (myScore - bestOtherScore)
-                + 1.25 * capital;
+                + capitalSafety;
         return Math.tanh(raw / 3.0);
     }
 
