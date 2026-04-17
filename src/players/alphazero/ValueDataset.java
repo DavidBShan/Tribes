@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,10 +49,10 @@ public final class ValueDataset {
     }
 
     public static ArrayList<ValueTrainingExample> load(String path, int maxExamples) {
-        ArrayList<ValueTrainingExample> examples = new ArrayList<>();
+        ArrayDeque<ValueTrainingExample> examples = new ArrayDeque<>();
         File file = new File(path);
         if (!file.exists()) {
-            return examples;
+            return new ArrayList<>();
         }
 
         try {
@@ -72,10 +73,10 @@ public final class ValueDataset {
                 for (int i = 0; i < features.length; i++) {
                     features[i] = Double.parseDouble(parts[i + 1]);
                 }
-                examples.add(new ValueTrainingExample(label, features));
+                examples.addLast(new ValueTrainingExample(label, features));
 
-                if (maxExamples > 0 && examples.size() >= maxExamples) {
-                    break;
+                if (maxExamples > 0 && examples.size() > maxExamples) {
+                    examples.removeFirst();
                 }
             }
             reader.close();
@@ -83,6 +84,6 @@ public final class ValueDataset {
             throw new RuntimeException("Could not load value training data from " + path, e);
         }
 
-        return examples;
+        return new ArrayList<>(examples);
     }
 }
