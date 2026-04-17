@@ -251,7 +251,9 @@ public class AlphaZeroAgent extends Agent {
 
         for (Action action : actions) {
             GameState next = gs.copy();
-            next.advance(action, true);
+            if (!next.advance(action, true, false)) {
+                continue;
+            }
             double value = evaluateLeaf(next);
             value = noise(value);
             if (value > bestValue) {
@@ -502,12 +504,17 @@ public class AlphaZeroAgent extends Agent {
 
             ArrayList<ChildSpec> specs = new ArrayList<>();
             for (Action action : actions) {
+                if (!action.isFeasible(state)) {
+                    continue;
+                }
                 if (fmCalls >= params.num_fmcalls && !specs.isEmpty()) {
                     break;
                 }
 
                 GameState next = state.copy();
-                next.advance(action, true);
+                if (!next.advance(action, true, false)) {
+                    continue;
+                }
                 fmCalls++;
                 double logit = actionPriorLogit(state, action, next, depth);
                 specs.add(new ChildSpec(action, next, logit));

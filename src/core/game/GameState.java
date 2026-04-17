@@ -310,63 +310,65 @@ public class GameState {
      */
     public void advance(Action action, boolean computeActions)
     {
-        if(action != null)
-        {
-            boolean executed = false;
-            ActionCommand ac = action.getActionType().getCommand();
-            if(ac != null)
-                executed = ac.execute(action, this);
+        advance(action, computeActions, true);
+    }
 
-            if(!executed && ac != null) {
-                System.out.println("FM: Action [" + action + "] couldn't execute?");
-                ac.execute(action, this);
-                //return false;
-            }
+    public boolean advance(Action action, boolean computeActions, boolean warnOnFailure)
+    {
+        if(action == null)
+            return false;
 
-            if(executed) {
-                //it's an end turn
-                if(action.getActionType() == Types.ACTION.END_TURN)
+        boolean executed = false;
+        ActionCommand ac = action.getActionType().getCommand();
+        if(ac != null)
+            executed = ac.execute(action, this);
+
+        if(!executed && ac != null && warnOnFailure) {
+            System.out.println("FM: Action [" + action + "] couldn't execute?");
+        }
+
+        if(executed) {
+            //it's an end turn
+            if(action.getActionType() == Types.ACTION.END_TURN)
+            {
+                //manage the end of this turn.
+                this.endTurn(getActiveTribe());
+
+                //the game may be over
+                gameOver();
+
+                //Advance player
+                if(!gameIsOver)
                 {
-                    //manage the end of this turn.
-                    this.endTurn(getActiveTribe());
-
-                    //the game may be over
-                    gameOver();
-
-                    //Advance player
-                    if(!gameIsOver)
+                    int curActiveTribeId = board.getActiveTribeID();
+                    boolean playerFound = false;
+                    while(!playerFound)
                     {
-                        int curActiveTribeId = board.getActiveTribeID();
-                        boolean playerFound = false;
-                        while(!playerFound)
-                        {
-                            curActiveTribeId = (curActiveTribeId + 1) % canEndTurn.length;
-                            if(board.getTribe(curActiveTribeId).getWinner() != Types.RESULT.LOSS)
-                                playerFound = true;
+                        curActiveTribeId = (curActiveTribeId + 1) % canEndTurn.length;
+                        if(board.getTribe(curActiveTribeId).getWinner() != Types.RESULT.LOSS)
+                            playerFound = true;
 
-                            if(curActiveTribeId == board.getActiveTribeID()) {
-                                System.out.println("ForwardModel ERROR: this shouldn't happen (all players but " +
-                                        board.getActiveTribeID() + " lost, but it's not game over?)");
-                                gameOver();
-                            }
+                        if(curActiveTribeId == board.getActiveTribeID()) {
+                            System.out.println("ForwardModel ERROR: this shouldn't happen (all players but " +
+                                    board.getActiveTribeID() + " lost, but it's not game over?)");
+                            gameOver();
                         }
-
-                        board.setActiveTribeID(curActiveTribeId);
-
-                        //Start the turn for the next tribe
-                        this.initTurn(getActiveTribe());
                     }
 
+                    board.setActiveTribeID(curActiveTribeId);
+
+                    //Start the turn for the next tribe
+                    this.initTurn(getActiveTribe());
                 }
 
-                computedActionTribeIdFlag = -1;
-                if (computeActions)
-                    this.computePlayerActions(getActiveTribe());
-
             }
-            //return true;
+
+            computedActionTribeIdFlag = -1;
+            if (computeActions)
+                this.computePlayerActions(getActiveTribe());
         }
-        //return false;
+
+        return executed;
     }
 
     /**
