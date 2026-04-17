@@ -62,8 +62,7 @@ public class AlphaZeroTrainer {
                 }
                 bestCheckpoint = CheckpointScore.from(simple, osla, reference);
                 saveBestCheckpoint(opts);
-                System.out.printf("initial best checkpoint: score=%.3f marginFloor=%.1f marginAvg=%.1f%n",
-                        bestCheckpoint.score, bestCheckpoint.marginFloor, bestCheckpoint.marginAverage);
+                System.out.println(bestCheckpoint.format("initial best checkpoint"));
 
                 boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
                 targetReached = simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate
@@ -109,11 +108,11 @@ public class AlphaZeroTrainer {
                 }
 
                 CheckpointScore checkpoint = CheckpointScore.from(simple, osla, reference);
+                System.out.println(checkpoint.format("checkpoint candidate"));
                 if (bestCheckpoint == null || checkpoint.betterThan(bestCheckpoint)) {
                     saveBestCheckpoint(opts);
                     bestCheckpoint = checkpoint;
-                    System.out.printf("best checkpoint updated: score=%.3f marginFloor=%.1f marginAvg=%.1f%n",
-                            checkpoint.score, checkpoint.marginFloor, checkpoint.marginAverage);
+                    System.out.println(checkpoint.format("best checkpoint updated"));
                 } else if (opts.restoreBestOnRegression) {
                     restoreBestCheckpoint(opts);
                     System.out.printf("restored best checkpoint: currentScore=%.3f currentMarginFloor=%.1f "
@@ -457,23 +456,43 @@ public class AlphaZeroTrainer {
         final double score;
         final double marginFloor;
         final double marginAverage;
+        final double simpleWinRate;
+        final double oslaWinRate;
+        final double referenceWinRate;
+        final double simpleMargin;
+        final double oslaMargin;
+        final double referenceMargin;
 
-        CheckpointScore(double score, double marginFloor, double marginAverage) {
+        CheckpointScore(double score, double marginFloor, double marginAverage,
+                        double simpleWinRate, double oslaWinRate, double referenceWinRate,
+                        double simpleMargin, double oslaMargin, double referenceMargin) {
             this.score = score;
             this.marginFloor = marginFloor;
             this.marginAverage = marginAverage;
+            this.simpleWinRate = simpleWinRate;
+            this.oslaWinRate = oslaWinRate;
+            this.referenceWinRate = referenceWinRate;
+            this.simpleMargin = simpleMargin;
+            this.oslaMargin = oslaMargin;
+            this.referenceMargin = referenceMargin;
         }
 
         static CheckpointScore from(MatchResult simple, MatchResult osla, MatchResult reference) {
             double score = Math.min(simple.winRate(), osla.winRate());
             double marginFloor = Math.min(simple.avgMargin(), osla.avgMargin());
             double marginAverage = (simple.avgMargin() + osla.avgMargin()) / 2.0;
+            double referenceWinRate = Double.NaN;
+            double referenceMargin = Double.NaN;
             if (reference != null) {
-                score = Math.min(score, reference.winRate());
-                marginFloor = Math.min(marginFloor, reference.avgMargin());
-                marginAverage = (simple.avgMargin() + osla.avgMargin() + reference.avgMargin()) / 3.0;
+                referenceWinRate = reference.winRate();
+                referenceMargin = reference.avgMargin();
+                score = Math.min(score, referenceWinRate);
+                marginFloor = Math.min(marginFloor, referenceMargin);
+                marginAverage = (simple.avgMargin() + osla.avgMargin() + referenceMargin) / 3.0;
             }
-            return new CheckpointScore(score, marginFloor, marginAverage);
+            return new CheckpointScore(score, marginFloor, marginAverage,
+                    simple.winRate(), osla.winRate(), referenceWinRate,
+                    simple.avgMargin(), osla.avgMargin(), referenceMargin);
         }
 
         boolean betterThan(CheckpointScore other) {
@@ -490,6 +509,22 @@ public class AlphaZeroTrainer {
                 return false;
             }
             return marginAverage > other.marginAverage + 1e-9;
+        }
+
+        String format(String prefix) {
+            return String.format("%s: score=%.3f marginFloor=%.1f marginAvg=%.1f "
+                            + "simpleWin=%.3f oslaWin=%.3f referenceWin=%s "
+                            + "simpleMargin=%.1f oslaMargin=%.1f referenceMargin=%s",
+                    prefix, score, marginFloor, marginAverage,
+                    simpleWinRate, oslaWinRate, formatMaybe(referenceWinRate),
+                    simpleMargin, oslaMargin, formatMaybe(referenceMargin));
+        }
+
+        private static String formatMaybe(double value) {
+            if (Double.isNaN(value)) {
+                return "NaN";
+            }
+            return String.format("%.3f", value);
         }
     }
 
