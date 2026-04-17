@@ -677,6 +677,10 @@ public class AlphaZeroTrainer {
             this.opponent = opponent;
         }
 
+        void add(EvalOutcome outcome) {
+            add(outcome, 0);
+        }
+
         void add(EvalOutcome outcome, int playerCount) {
             scoreTotal += outcome.score;
             opponentScoreTotal += outcome.opponentScore;
