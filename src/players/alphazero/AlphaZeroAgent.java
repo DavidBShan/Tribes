@@ -19,8 +19,8 @@ public class AlphaZeroAgent extends Agent {
     private final Random rnd;
     private final AZParams params;
     private final SimpleAgent advisor;
-    private LinearValueFunction valueFunction;
-    private LinearPolicyFunction policyFunction;
+    private ValueModel valueFunction;
+    private PolicyModel policyFunction;
     private StateHeuristic heuristic;
     private GameState rootState;
     private Action advisorAction;
@@ -39,8 +39,8 @@ public class AlphaZeroAgent extends Agent {
         this.rnd = new Random(seed);
         this.params = params;
         this.advisor = new SimpleAgent(seed + 17);
-        this.valueFunction = LinearValueFunction.load(params.modelPath);
-        this.policyFunction = LinearPolicyFunction.load(params.policyPath);
+        this.valueFunction = ModelFactory.loadValue(params.networkType, params.modelPath);
+        this.policyFunction = ModelFactory.loadPolicy(params.networkType, params.policyPath);
     }
 
     @Override
@@ -58,20 +58,22 @@ public class AlphaZeroAgent extends Agent {
         }
 
         updateTurnCounter(gs);
-        this.valueFunction = LinearValueFunction.load(params.modelPath);
-        this.policyFunction = LinearPolicyFunction.load(params.policyPath);
+        this.valueFunction = ModelFactory.loadValue(params.networkType, params.modelPath);
+        this.policyFunction = ModelFactory.loadPolicy(params.networkType, params.policyPath);
         this.heuristic = params.getStateHeuristic(playerID, allPlayerIDs);
         this.rootState = gs;
-        this.advisorAction = safeAdvisorAction(gs, ect);
+        this.advisorAction = (params.advisorOverride || params.staticPriors) ? safeAdvisorAction(gs, ect) : null;
 
-        Action urgent = urgentTacticalAction(gs, allActions);
-        if (urgent != null) {
-            return urgent;
-        }
+        if (params.tacticalShortcuts) {
+            Action urgent = urgentTacticalAction(gs, allActions);
+            if (urgent != null) {
+                return urgent;
+            }
 
-        Action greedy = greedyPriorityAction(gs, allActions);
-        if (greedy != null) {
-            return greedy;
+            Action greedy = greedyPriorityAction(gs, allActions);
+            if (greedy != null) {
+                return greedy;
+            }
         }
 
         Action forcedEnd = forcedEndTurn(allActions);
@@ -121,7 +123,7 @@ public class AlphaZeroAgent extends Agent {
             }
         }
         Node advised = root.findChild(advisorAction);
-        if (!sampledSelection && advised != null && selected != null && selected != advised) {
+        if (params.advisorOverride && !sampledSelection && advised != null && selected != null && selected != advised) {
             double selectedQ = selected.meanValue();
             double advisedQ = advised.meanValue();
             if (selectedQ < advisedQ + params.advisorOverrideMargin) {
@@ -276,12 +278,14 @@ public class AlphaZeroAgent extends Agent {
         }
 
         if (filtered.size() > params.prefilterActions) {
-            Collections.sort(filtered, new Comparator<Action>() {
-                @Override
-                public int compare(Action a, Action b) {
-                    return Double.compare(staticActionScore(b), staticActionScore(a));
-                }
-            });
+            if (params.prefilterByStaticScore) {
+                Collections.sort(filtered, new Comparator<Action>() {
+                    @Override
+                    public int compare(Action a, Action b) {
+                        return Double.compare(staticActionScore(b), staticActionScore(a));
+                    }
+                });
+            }
 
             ArrayList<Action> limited = new ArrayList<>();
             for (int i = 0; i < params.prefilterActions && i < filtered.size(); i++) {
@@ -290,7 +294,7 @@ public class AlphaZeroAgent extends Agent {
             if (endTurn != null && !limited.contains(endTurn)) {
                 limited.set(limited.size() - 1, endTurn);
             }
-            if (root && advisorAction != null && !limited.contains(advisorAction) && filtered.contains(advisorAction)) {
+            if (params.staticPriors && root && advisorAction != null && !limited.contains(advisorAction) && filtered.contains(advisorAction)) {
                 limited.set(0, advisorAction);
             }
             filtered = limited;
@@ -312,10 +316,13 @@ public class AlphaZeroAgent extends Agent {
         heuristicValue = (1.0 - params.positionBlend) * heuristicValue + params.positionBlend * positionValue;
 
         if (!valueFunction.isTrained()) {
-            return heuristicValue;
+            return params.learnedValueOnly ? 0.0 : heuristicValue;
         }
 
         double learnedValue = valueFunction.predict(leafState, playerID, allPlayerIDs);
+        if (params.learnedValueOnly) {
+            return learnedValue;
+        }
         double blend = params.heuristicBlend;
         if (params.disagreementHeuristicBlend > blend
                 && learnedValue * heuristicValue < 0.0
@@ -328,15 +335,16 @@ public class AlphaZeroAgent extends Agent {
     private double actionPriorLogit(GameState state, Action action, GameState nextState, int depth) {
         boolean actorIsMe = state.getActiveTribeID() == playerID;
         double orientation = actorIsMe ? 1.0 : -1.0;
-        double value = evaluateLeaf(nextState);
-        double advisorBoost = depth == 0 && advisorAction != null && advisorAction.equals(action) ? 5.0 : 0.0;
+        double value = params.nextStateValuePrior ? evaluateLeaf(nextState) : 0.0;
+        double advisorBoost = params.staticPriors && depth == 0 && advisorAction != null && advisorAction.equals(action) ? 5.0 : 0.0;
+        double staticPrior = params.staticPriors ? staticActionScore(action) + advisorBoost : 0.0;
         double policyLogit = 0.0;
         if (policyFunction.isTrained()) {
             int actor = state.getActiveTribeID();
             double p = policyFunction.probability(state, actor, allPlayerIDs, action.getActionType());
             policyLogit = params.policyLogitWeight * Math.log(Math.max(1e-6, p));
         }
-        return orientation * value + orientation * (staticActionScore(action) + advisorBoost) * 0.10 + policyLogit;
+        return orientation * value + orientation * staticPrior * 0.10 + policyLogit;
     }
 
     private double staticActionScore(Action action) {

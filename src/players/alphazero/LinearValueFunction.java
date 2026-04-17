@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Random;
 
-public class LinearValueFunction {
+public class LinearValueFunction implements ValueModel {
 
     private final double[] weights;
     private boolean trained;

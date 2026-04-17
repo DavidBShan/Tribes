@@ -13,7 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Random;
 
-public class LinearPolicyFunction {
+public class LinearPolicyFunction implements PolicyModel {
 
     private final double[][] weights;
     private boolean trained;

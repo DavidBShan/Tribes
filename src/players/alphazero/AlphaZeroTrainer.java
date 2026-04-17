@@ -30,6 +30,7 @@ public class AlphaZeroTrainer {
         configureHeadless(opts);
 
         System.out.println("AlphaZero-style value training");
+        System.out.println("networkType=" + opts.networkType);
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
         System.out.println("policyTargets=" + opts.policyTargetMode);
@@ -48,6 +49,13 @@ public class AlphaZeroTrainer {
                 + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " searchPositionBlend=" + opts.positionBlend
                 + " advisorMargin=" + opts.advisorOverrideMargin);
+        System.out.println("pureAz=" + opts.pureAz
+                + " tacticalShortcuts=" + opts.tacticalShortcuts
+                + " advisorOverride=" + opts.advisorOverride
+                + " staticPriors=" + opts.staticPriors
+                + " nextStateValuePrior=" + opts.nextStateValuePrior
+                + " learnedValueOnly=" + opts.learnedValueOnly
+                + " prefilterByStaticScore=" + opts.prefilterByStaticScore);
         if (opts.recordTrajectories) {
             System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
@@ -84,7 +92,7 @@ public class AlphaZeroTrainer {
                         opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget), trajectoryWriter);
 
                 ArrayList<ValueTrainingExample> examples = ValueDataset.load(opts.dataPath, opts.maxTrainingExamples);
-                LinearValueFunction vf = LinearValueFunction.load(opts.modelPath);
+                ValueModel vf = ModelFactory.loadValue(opts.networkType, opts.modelPath);
                 if (!examples.isEmpty()) {
                     double loss = vf.train(examples, opts.epochs, opts.learningRate, opts.l2, opts.seed + iteration);
                     vf.save(opts.modelPath);
@@ -94,7 +102,7 @@ public class AlphaZeroTrainer {
                 }
 
                 ArrayList<PolicyTrainingExample> policyExamples = PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples);
-                LinearPolicyFunction policy = LinearPolicyFunction.load(opts.policyPath);
+                PolicyModel policy = ModelFactory.loadPolicy(opts.networkType, opts.policyPath);
                 if (!policyExamples.isEmpty()) {
                     double policyLoss = policy.train(policyExamples, opts.policyEpochs, opts.policyLearningRate, opts.l2, opts.seed + 991 * iteration);
                     policy.save(opts.policyPath);
@@ -400,6 +408,7 @@ public class AlphaZeroTrainer {
         AZParams params = new AZParams();
         params.modelPath = opts.modelPath;
         params.policyPath = opts.policyPath;
+        params.networkType = opts.networkType;
         params.num_fmcalls = opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
@@ -412,6 +421,12 @@ public class AlphaZeroTrainer {
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.policyLogitWeight = opts.policyLogitWeight;
+        params.tacticalShortcuts = opts.tacticalShortcuts;
+        params.advisorOverride = opts.advisorOverride;
+        params.staticPriors = opts.staticPriors;
+        params.nextStateValuePrior = opts.nextStateValuePrior;
+        params.learnedValueOnly = opts.learnedValueOnly;
+        params.prefilterByStaticScore = opts.prefilterByStaticScore;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.visitSamplingTemperature = training ? opts.visitSamplingTemperature : 0.0;
@@ -423,6 +438,7 @@ public class AlphaZeroTrainer {
         AZParams params = new AZParams();
         params.modelPath = opts.referenceModelPath;
         params.policyPath = opts.referencePolicyPath;
+        params.networkType = opts.networkType;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
@@ -435,6 +451,12 @@ public class AlphaZeroTrainer {
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.policyLogitWeight = opts.policyLogitWeight;
+        params.tacticalShortcuts = opts.tacticalShortcuts;
+        params.advisorOverride = opts.advisorOverride;
+        params.staticPriors = opts.staticPriors;
+        params.nextStateValuePrior = opts.nextStateValuePrior;
+        params.learnedValueOnly = opts.learnedValueOnly;
+        params.prefilterByStaticScore = opts.prefilterByStaticScore;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.visitSamplingTemperature = 0.0;
@@ -591,6 +613,7 @@ public class AlphaZeroTrainer {
     private static class Options {
         String modelPath = "models/alphazero-value.tsv";
         String policyPath = "models/alphazero-policy.tsv";
+        String networkType = ModelFactory.LINEAR;
         String bestModelPath = "";
         String bestPolicyPath = "";
         String dataPath = "training/alphazero-value-data.tsv";
@@ -652,6 +675,13 @@ public class AlphaZeroTrainer {
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
         boolean baselineInitialCheckpoint = false;
+        boolean pureAz = false;
+        boolean tacticalShortcuts = true;
+        boolean advisorOverride = true;
+        boolean staticPriors = true;
+        boolean nextStateValuePrior = true;
+        boolean learnedValueOnly = false;
+        boolean prefilterByStaticScore = true;
 
         static Options parse(String[] args) {
             Options opts = new Options();
@@ -665,6 +695,7 @@ public class AlphaZeroTrainer {
 
                 if ("model".equals(key)) opts.modelPath = value;
                 else if ("policy".equals(key)) opts.policyPath = value;
+                else if ("network-type".equals(key)) opts.networkType = value;
                 else if ("best-model".equals(key)) opts.bestModelPath = value;
                 else if ("best-policy".equals(key)) opts.bestPolicyPath = value;
                 else if ("data".equals(key)) opts.dataPath = value;
@@ -725,13 +756,37 @@ public class AlphaZeroTrainer {
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
                 else if ("baseline-initial-checkpoint".equals(key)) opts.baselineInitialCheckpoint = Boolean.parseBoolean(value);
+                else if ("pure-az".equals(key)) opts.pureAz = Boolean.parseBoolean(value);
+                else if ("tactical-shortcuts".equals(key)) opts.tacticalShortcuts = Boolean.parseBoolean(value);
+                else if ("advisor-override".equals(key)) opts.advisorOverride = Boolean.parseBoolean(value);
+                else if ("static-priors".equals(key)) opts.staticPriors = Boolean.parseBoolean(value);
+                else if ("next-state-value-prior".equals(key)) opts.nextStateValuePrior = Boolean.parseBoolean(value);
+                else if ("learned-value-only".equals(key)) opts.learnedValueOnly = Boolean.parseBoolean(value);
+                else if ("prefilter-by-static-score".equals(key)) opts.prefilterByStaticScore = Boolean.parseBoolean(value);
                 else {
                     throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
+            opts.applyModeDefaults();
             opts.resolveDerivedPaths();
             opts.resetLevelSeedRandom();
             return opts;
+        }
+
+        private void applyModeDefaults() {
+            if (!pureAz) {
+                return;
+            }
+            tacticalShortcuts = false;
+            advisorOverride = false;
+            staticPriors = false;
+            nextStateValuePrior = false;
+            learnedValueOnly = true;
+            prefilterByStaticScore = false;
+            heuristicBlend = 0.0;
+            positionBlend = 0.0;
+            advisorOverrideMargin = -1.0;
+            policyLogitWeight = Math.max(policyLogitWeight, 1.0);
         }
 
         private void resolveDerivedPaths() {

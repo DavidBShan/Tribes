@@ -24,6 +24,13 @@ public class AZParams extends AlgParams {
     public double visitSamplingTemperature = 0.0;
     public int visitSamplingUntilTick = 0;
     public int forceTurnAfterActions = 10;
+    public boolean tacticalShortcuts = true;
+    public boolean advisorOverride = true;
+    public boolean staticPriors = true;
+    public boolean nextStateValuePrior = true;
+    public boolean learnedValueOnly = false;
+    public boolean prefilterByStaticScore = true;
+    public String networkType = ModelFactory.LINEAR;
     public String modelPath = "models/alphazero-value.tsv";
     public String policyPath = "models/alphazero-policy.tsv";
 
