@@ -35,6 +35,7 @@ public class AlphaZeroTrainer {
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         System.out.println("baselineInitialCheckpoint=" + opts.baselineInitialCheckpoint);
+        System.out.println("referenceRefreshInterval=" + opts.referenceRefreshInterval);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
@@ -120,6 +121,11 @@ public class AlphaZeroTrainer {
                             checkpoint.score, checkpoint.marginFloor, bestCheckpoint.score,
                             bestCheckpoint.marginFloor);
                 }
+                if (opts.referenceRefreshInterval > 0 && iteration % opts.referenceRefreshInterval == 0) {
+                    refreshReferenceCheckpoint(opts);
+                    System.out.printf("refreshed reference checkpoint: iteration=%d interval=%d%n",
+                            iteration, opts.referenceRefreshInterval);
+                }
 
                 boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
                 if (simple.winRate() >= opts.targetWinRate && osla.winRate() >= opts.targetWinRate
@@ -161,6 +167,15 @@ public class AlphaZeroTrainer {
         }
         if (Files.exists(Path.of(opts.bestPolicyPath))) {
             copyFile(opts.bestPolicyPath, opts.policyPath);
+        }
+    }
+
+    private static void refreshReferenceCheckpoint(Options opts) throws IOException {
+        if (Files.exists(Path.of(opts.bestModelPath))) {
+            copyFile(opts.bestModelPath, opts.referenceModelPath);
+        }
+        if (Files.exists(Path.of(opts.bestPolicyPath))) {
+            copyFile(opts.bestPolicyPath, opts.referencePolicyPath);
         }
     }
 
@@ -247,6 +262,7 @@ public class AlphaZeroTrainer {
         obj.put("value_position_blend", opts.valuePositionBlend);
         obj.put("search_position_blend", opts.positionBlend);
         obj.put("advisor_override_margin", opts.advisorOverrideMargin);
+        obj.put("reference_refresh_interval", opts.referenceRefreshInterval);
 
         JSONArray bots = new JSONArray();
         bots.put("AZ");
@@ -560,6 +576,7 @@ public class AlphaZeroTrainer {
         int maxTrajectoriesPerGame = 240;
         int trajectoryFlushEvery = 64;
         int referenceSearchFmCalls = 0;
+        int referenceRefreshInterval = 0;
         double learningRate = 0.015;
         double policyLearningRate = 0.010;
         double l2 = 0.0001;
@@ -623,6 +640,7 @@ public class AlphaZeroTrainer {
                 else if ("max-trajectories-per-game".equals(key)) opts.maxTrajectoriesPerGame = Integer.parseInt(value);
                 else if ("trajectory-flush-every".equals(key)) opts.trajectoryFlushEvery = Integer.parseInt(value);
                 else if ("reference-calls".equals(key)) opts.referenceSearchFmCalls = Integer.parseInt(value);
+                else if ("reference-refresh-interval".equals(key)) opts.referenceRefreshInterval = Integer.parseInt(value);
                 else if ("lr".equals(key)) opts.learningRate = Double.parseDouble(value);
                 else if ("policy-lr".equals(key)) opts.policyLearningRate = Double.parseDouble(value);
                 else if ("l2".equals(key)) opts.l2 = Double.parseDouble(value);
