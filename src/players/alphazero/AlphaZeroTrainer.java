@@ -517,6 +517,7 @@ public class AlphaZeroTrainer {
         final double simpleMargin;
         final double oslaMargin;
         final double referenceMargin;
+        static final double WIN_RATE_NOISE_BAND = 0.125;
 
         CheckpointScore(double score, double marginFloor, double marginAverage,
                         double simpleWinRate, double oslaWinRate, double referenceWinRate,
@@ -551,16 +552,20 @@ public class AlphaZeroTrainer {
         }
 
         boolean betterThan(CheckpointScore other) {
-            if (score > other.score + 1e-9) {
-                return true;
-            }
-            if (score < other.score - 1e-9) {
-                return false;
+            double scoreDiff = score - other.score;
+            if (Math.abs(scoreDiff) > WIN_RATE_NOISE_BAND) {
+                return scoreDiff > 0.0;
             }
             if (marginFloor > other.marginFloor + 1e-9) {
                 return true;
             }
             if (marginFloor < other.marginFloor - 1e-9) {
+                return false;
+            }
+            if (scoreDiff > 1e-9) {
+                return true;
+            }
+            if (scoreDiff < -1e-9) {
                 return false;
             }
             return marginAverage > other.marginAverage + 1e-9;
