@@ -37,6 +37,7 @@ public class AlphaZeroTrainer {
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         System.out.println("baselineInitialCheckpoint=" + opts.baselineInitialCheckpoint);
         System.out.println("referenceRefreshInterval=" + opts.referenceRefreshInterval);
+        System.out.println("cpuct=" + opts.cpuct + " priorTemperature=" + opts.priorTemperature);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
@@ -401,6 +402,8 @@ public class AlphaZeroTrainer {
         params.policyPath = opts.policyPath;
         params.num_fmcalls = opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
+        params.cpuct = opts.cpuct;
+        params.priorTemperature = opts.priorTemperature;
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
@@ -422,6 +425,8 @@ public class AlphaZeroTrainer {
         params.policyPath = opts.referencePolicyPath;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
+        params.cpuct = opts.cpuct;
+        params.priorTemperature = opts.priorTemperature;
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
@@ -626,6 +631,8 @@ public class AlphaZeroTrainer {
         double policyLogitWeight = 0.06;
         double valuePositionBlend = 0.0;
         double terminalPositionBlend = 0.0;
+        double cpuct = 1.50;
+        double priorTemperature = 0.75;
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
         double visitSamplingTemperature = 0.0;
@@ -679,6 +686,8 @@ public class AlphaZeroTrainer {
                 else if ("depth".equals(key)) opts.searchDepth = Integer.parseInt(value);
                 else if ("max-actions".equals(key)) opts.maxActionsPerNode = Integer.parseInt(value);
                 else if ("prefilter".equals(key)) opts.prefilterActions = Integer.parseInt(value);
+                else if ("cpuct".equals(key)) opts.cpuct = Double.parseDouble(value);
+                else if ("prior-temp".equals(key)) opts.priorTemperature = Double.parseDouble(value);
                 else if ("max-prompt-actions".equals(key)) opts.maxPromptActions = Integer.parseInt(value);
                 else if ("max-trajectories-per-game".equals(key)) opts.maxTrajectoriesPerGame = Integer.parseInt(value);
                 else if ("trajectory-flush-every".equals(key)) opts.trajectoryFlushEvery = Integer.parseInt(value);
