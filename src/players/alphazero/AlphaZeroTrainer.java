@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Random;
 
 import static core.Types.GAME_MODE.CAPITALS;
 import static core.Types.TRIBE.IMPERIUS;
@@ -40,6 +41,8 @@ public class AlphaZeroTrainer {
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
                 + " untilTick=" + opts.visitSamplingUntilTick);
+        System.out.println("randomLevelSeeds=" + opts.randomLevelSeeds
+                + " mapSnapshotDir=" + opts.mapSnapshotDir);
         System.out.println("valuePositionBlend=" + opts.valuePositionBlend
                 + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " searchPositionBlend=" + opts.positionBlend
@@ -215,6 +218,8 @@ public class AlphaZeroTrainer {
         int nGames = selfPlayOnly && !opts.selfPlayOnly ? opts.selfPlayGamesAfterTarget : opts.gamesPerIteration;
         for (int gameIdx = 0; gameIdx < nGames; gameIdx++) {
             long seed = opts.seed + iteration * 10000L + gameIdx * 31L;
+            long levelSeed = opts.nextLevelSeed(seed);
+            long gameSeed = seed + 17;
             String opponent;
             if (selfPlayOnly) {
                 opponent = "AZ";
@@ -223,12 +228,12 @@ public class AlphaZeroTrainer {
             }
 
             int episode = trainingEpisode(opts, iteration, gameIdx);
-            JSONObject setup = setupMetadata(opts, iteration, gameIdx, seed, opponent);
+            JSONObject setup = setupMetadata(opts, iteration, gameIdx, levelSeed, gameSeed, opponent, "train");
             Agent a = recording("AZ", newAlphaZero(seed, opts, true), opts, trajectoryWriter,
                     setup, episode, 0, seed + 1);
             Agent b = recording(opponent, newAgent(opponent, seed + 2, opts, true), opts, trajectoryWriter,
                     setup, episode, 1, seed + 3);
-            runOneGame(a, b, seed, seed + 17);
+            runOneGame(a, b, levelSeed, gameSeed, opts, "train", episode, gameIdx, opponent);
             System.out.println("data game " + (gameIdx + 1) + "/" + nGames + " vs " + opponent);
         }
     }
@@ -237,16 +242,24 @@ public class AlphaZeroTrainer {
         return (iteration - 1) * Math.max(opts.gamesPerIteration, opts.selfPlayGamesAfterTarget) + gameIdx;
     }
 
-    private static JSONObject setupMetadata(Options opts, int iteration, int gameIdx, long seed, String opponent) {
+    private static JSONObject setupMetadata(Options opts, int iteration, int gameIdx,
+                                            long levelSeed, long gameSeed,
+                                            String opponent, String mapSplit) {
         JSONObject obj = new JSONObject();
         obj.put("episode", trainingEpisode(opts, iteration, gameIdx));
         obj.put("iteration", iteration);
         obj.put("game_index", gameIdx);
-        obj.put("level_seed", seed);
-        obj.put("game_seed", seed + 17);
+        obj.put("level_seed", levelSeed);
+        obj.put("game_seed", gameSeed);
         obj.put("game_mode", CAPITALS.name());
         obj.put("players", "az_training");
         obj.put("map", "procedural");
+        obj.put("random_level_seeds", opts.randomLevelSeeds);
+        obj.put("map_snapshot_dir", opts.mapSnapshotDir);
+        obj.put("map_snapshot_split", mapSplit);
+        obj.put("map_snapshot_file",
+                MapSnapshotWriter.fileName(mapSplit, trainingEpisode(opts, iteration, gameIdx),
+                        gameIdx, levelSeed, gameSeed));
         obj.put("random_tribes", false);
         obj.put("value_model", opts.modelPath);
         obj.put("policy_model", opts.policyPath);
@@ -296,22 +309,32 @@ public class AlphaZeroTrainer {
         for (int i = 0; i < evalGames; i++) {
             long seed = seedBase + i * 997L;
 
-            Game first = runOneGame(newAlphaZero(seed + 1, opts), newAgent(opponent, seed + 2, opts), seed, seed + 13);
+            long firstLevelSeed = opts.nextLevelSeed(seed);
+            Game first = runOneGame(newAlphaZero(seed + 1, opts), newAgent(opponent, seed + 2, opts),
+                    firstLevelSeed, seed + 13, opts, "eval-" + opponent + "-az-first",
+                    i, i * 2, opponent);
             result.add(outcomeForTribe(first, XIN_XI));
 
-            Game second = runOneGame(newAgent(opponent, seed + 3, opts), newAlphaZero(seed + 4, opts), seed, seed + 29);
+            long secondLevelSeed = opts.randomLevelSeeds ? opts.nextLevelSeed(seed + 1) : seed;
+            Game second = runOneGame(newAgent(opponent, seed + 3, opts), newAlphaZero(seed + 4, opts),
+                    secondLevelSeed, seed + 29, opts, "eval-" + opponent + "-az-second",
+                    i, i * 2 + 1, opponent);
             result.add(outcomeForTribe(second, IMPERIUS));
         }
         return result;
     }
 
-    private static Game runOneGame(Agent a, Agent b, long levelSeed, long gameSeed) {
+    private static Game runOneGame(Agent a, Agent b, long levelSeed, long gameSeed,
+                                   Options opts, String mapSplit, int episode,
+                                   int gameIndex, String opponent) {
         ArrayList<Agent> players = new ArrayList<>();
         players.add(a);
         players.add(b);
 
         Game game = new Game();
         game.init(players, levelSeed, new Types.TRIBE[]{XIN_XI, IMPERIUS}, gameSeed, CAPITALS);
+        MapSnapshotWriter.write(opts.mapSnapshotDir, mapSplit, episode, gameIndex,
+                levelSeed, gameSeed, opponent, game);
         game.run(null, null);
         return game;
     }
@@ -563,6 +586,7 @@ public class AlphaZeroTrainer {
         String dataPath = "training/alphazero-value-data.tsv";
         String policyDataPath = "training/alphazero-policy-data.tsv";
         String trajectoryPath = "training/alphazero-sft-trajectories.jsonl";
+        String mapSnapshotDir = "";
         String referenceModelPath = "models/alphazero-value.tsv";
         String referencePolicyPath = "models/alphazero-policy.tsv";
         String trainingOpponentsCsv = "SIMPLE,OSLA,AZ";
@@ -607,9 +631,11 @@ public class AlphaZeroTrainer {
         double visitSamplingTemperature = 0.0;
         int visitSamplingUntilTick = 0;
         long seed = 20260416L;
+        private Random levelSeedRandom = new Random(seed);
         boolean continueAfterTarget = false;
         boolean selfPlayAfterTarget = true;
         boolean selfPlayOnly = false;
+        boolean randomLevelSeeds = false;
         boolean recordTrajectories = true;
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
@@ -632,6 +658,7 @@ public class AlphaZeroTrainer {
                 else if ("data".equals(key)) opts.dataPath = value;
                 else if ("policy-data".equals(key)) opts.policyDataPath = value;
                 else if ("trajectory-data".equals(key)) opts.trajectoryPath = value;
+                else if ("map-snapshot-dir".equals(key)) opts.mapSnapshotDir = value;
                 else if ("reference-model".equals(key)) opts.referenceModelPath = value;
                 else if ("reference-policy".equals(key)) opts.referencePolicyPath = value;
                 else if ("training-opponents".equals(key)) opts.trainingOpponentsCsv = value;
@@ -645,6 +672,7 @@ public class AlphaZeroTrainer {
                 else if ("epochs".equals(key)) opts.epochs = Integer.parseInt(value);
                 else if ("policy-epochs".equals(key)) opts.policyEpochs = Integer.parseInt(value);
                 else if ("max-examples".equals(key)) opts.maxTrainingExamples = Integer.parseInt(value);
+                else if ("max-examples-per-game".equals(key)) opts.maxExamplesPerGame = Integer.parseInt(value);
                 else if ("max-turns".equals(key)) opts.maxTurns = Integer.parseInt(value);
                 else if ("search-calls".equals(key)) opts.searchFmCalls = Integer.parseInt(value);
                 else if ("opponent-calls".equals(key)) opts.opponentFmCalls = Integer.parseInt(value);
@@ -678,6 +706,7 @@ public class AlphaZeroTrainer {
                 else if ("continue-after-target".equals(key)) opts.continueAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-after-target".equals(key)) opts.selfPlayAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-only".equals(key)) opts.selfPlayOnly = Boolean.parseBoolean(value);
+                else if ("random-level-seeds".equals(key)) opts.randomLevelSeeds = Boolean.parseBoolean(value);
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
@@ -687,6 +716,7 @@ public class AlphaZeroTrainer {
                 }
             }
             opts.resolveDerivedPaths();
+            opts.resetLevelSeedRandom();
             return opts;
         }
 
@@ -706,6 +736,19 @@ public class AlphaZeroTrainer {
                 return path.substring(0, dot) + "-best" + path.substring(dot);
             }
             return path + "-best";
+        }
+
+        synchronized long nextLevelSeed(long deterministicSeed) {
+            if (!randomLevelSeeds) {
+                return deterministicSeed;
+            }
+            long value = levelSeedRandom.nextLong();
+            return value == Long.MIN_VALUE ? 0L : Math.abs(value);
+        }
+
+        private void resetLevelSeedRandom() {
+            long mixed = seed ^ System.nanoTime() ^ (System.currentTimeMillis() << 21);
+            levelSeedRandom = new Random(mixed);
         }
 
         String trainingOpponent(int gameIdx) {
