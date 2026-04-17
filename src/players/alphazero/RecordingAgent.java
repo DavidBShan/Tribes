@@ -82,7 +82,7 @@ public class RecordingAgent extends Agent {
         long started = System.nanoTime();
         Action action = delegate.act(gs, ect);
         long elapsedMicros = (System.nanoTime() - started) / 1000L;
-        if (sampled && action != null) {
+        if (sampled && action != null && shouldRecordPolicyExample()) {
             ArrayList<PolicyTrainingExample> policyExamples = new ArrayList<>();
             policyExamples.add(policyExample(action, features));
             PolicyDataset.append(policyDatasetPath, policyExamples);
@@ -103,6 +103,10 @@ public class RecordingAgent extends Agent {
             }
         }
         return new PolicyTrainingExample(action.getActionType().ordinal(), features);
+    }
+
+    private boolean shouldRecordPolicyExample() {
+        return "AZ".equalsIgnoreCase(botName) && delegate instanceof AlphaZeroAgent;
     }
 
     private boolean shouldRecordTrajectory() {
