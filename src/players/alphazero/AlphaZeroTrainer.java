@@ -31,6 +31,9 @@ public class AlphaZeroTrainer {
 
         System.out.println("AlphaZero-style value training");
         System.out.println("networkType=" + opts.networkType);
+        if (!opts.referenceNetworkType.isEmpty()) {
+            System.out.println("referenceNetworkType=" + opts.referenceNetworkType);
+        }
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
         System.out.println("policyTargets=" + opts.policyTargetMode);
@@ -438,7 +441,7 @@ public class AlphaZeroTrainer {
         AZParams params = new AZParams();
         params.modelPath = opts.referenceModelPath;
         params.policyPath = opts.referencePolicyPath;
-        params.networkType = opts.networkType;
+        params.networkType = opts.referenceNetworkType.isEmpty() ? opts.networkType : opts.referenceNetworkType;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
@@ -614,6 +617,7 @@ public class AlphaZeroTrainer {
         String modelPath = "models/alphazero-value.tsv";
         String policyPath = "models/alphazero-policy.tsv";
         String networkType = ModelFactory.LINEAR;
+        String referenceNetworkType = "";
         String bestModelPath = "";
         String bestPolicyPath = "";
         String dataPath = "training/alphazero-value-data.tsv";
@@ -696,6 +700,7 @@ public class AlphaZeroTrainer {
                 if ("model".equals(key)) opts.modelPath = value;
                 else if ("policy".equals(key)) opts.policyPath = value;
                 else if ("network-type".equals(key)) opts.networkType = value;
+                else if ("reference-network-type".equals(key)) opts.referenceNetworkType = value;
                 else if ("best-model".equals(key)) opts.bestModelPath = value;
                 else if ("best-policy".equals(key)) opts.bestPolicyPath = value;
                 else if ("data".equals(key)) opts.dataPath = value;
