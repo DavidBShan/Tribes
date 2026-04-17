@@ -77,17 +77,29 @@ public final class StateFeatures {
     }
 
     public static double outcomeLabel(GameState finalState, int playerID, ArrayList<Integer> allIds) {
+        return outcomeLabel(finalState, playerID, allIds, 0.0);
+    }
+
+    public static double outcomeLabel(GameState finalState, int playerID, ArrayList<Integer> allIds,
+                                      double rankBlend) {
         Types.RESULT result = finalState.getTribeWinStatus(playerID);
         double margin = scoreMargin(finalState, playerID, allIds);
         double marginValue = Math.tanh(margin / 12000.0);
 
+        double base;
         if (result == Types.RESULT.WIN) {
-            return clamp(0.80 + 0.20 * marginValue);
+            base = clamp(0.80 + 0.20 * marginValue);
+        } else if (result == Types.RESULT.LOSS) {
+            base = clamp(-0.80 + 0.20 * marginValue);
+        } else {
+            base = clamp(marginValue);
         }
-        if (result == Types.RESULT.LOSS) {
-            return clamp(-0.80 + 0.20 * marginValue);
+
+        double blend = Math.max(0.0, Math.min(1.0, rankBlend));
+        if (blend <= 0.0) {
+            return base;
         }
-        return clamp(marginValue);
+        return clamp((1.0 - blend) * base + blend * rankValue(finalState, playerID, allIds));
     }
 
     public static double scoreMargin(GameState state, int playerID, ArrayList<Integer> allIds) {
@@ -102,6 +114,36 @@ public final class StateFeatures {
             bestOther = 0.0;
         }
         return myScore - bestOther;
+    }
+
+    private static double rankValue(GameState state, int playerID, ArrayList<Integer> allIds) {
+        if (allIds == null || allIds.size() <= 1) {
+            return Math.tanh(state.getScore(playerID) / 12000.0);
+        }
+
+        double myScore = state.getScore(playerID);
+        int better = 0;
+        int opponents = 0;
+        double opponentTotal = 0.0;
+        for (Integer id : allIds) {
+            if (id == playerID) {
+                continue;
+            }
+            opponents++;
+            double score = state.getScore(id);
+            opponentTotal += score;
+            if (score > myScore) {
+                better++;
+            }
+        }
+        if (opponents <= 0) {
+            return Math.tanh(myScore / 12000.0);
+        }
+
+        double rank = 1.0 - 2.0 * better / opponents;
+        double averageOpponent = opponentTotal / opponents;
+        double averageMargin = Math.tanh((myScore - averageOpponent) / 12000.0);
+        return clamp(0.70 * rank + 0.30 * averageMargin);
     }
 
     public static double positionValue(GameState state, int playerID, ArrayList<Integer> allIds) {
