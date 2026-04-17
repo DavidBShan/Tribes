@@ -245,7 +245,7 @@ public class AlphaZeroTrainer {
 
             int episode = trainingEpisode(opts, iteration, gameIdx);
             GameSetup gameSetup = trainingSetup(opts, seed, opponent, selfPlayOnly);
-            JSONObject setup = setupMetadata(opts, iteration, gameIdx, levelSeed, gameSeed,
+            JSONObject setup = setupMetadata(opts, iteration, gameIdx, episode, levelSeed, gameSeed,
                     gameSetup, "train");
             ArrayList<Agent> players = new ArrayList<>();
             for (int seat = 0; seat < gameSetup.bots.length; seat++) {
@@ -254,7 +254,7 @@ public class AlphaZeroTrainer {
                         opts, trajectoryWriter, setup, episode, seat, seed + 3 + seat * 19L));
             }
             runOneGame(players, gameSetup.tribes, levelSeed, gameSeed, opts, "train",
-                    episode, gameIdx, gameSetup.opponentLabel());
+                    episode, gameIdx, gameSetup.opponentLabel(), setup);
             System.out.println("data game " + (gameIdx + 1) + "/" + nGames
                     + " vs " + gameSetup.opponentLabel()
                     + " players=" + gameSetup.bots.length
@@ -266,11 +266,11 @@ public class AlphaZeroTrainer {
         return (iteration - 1) * Math.max(opts.gamesPerIteration, opts.selfPlayGamesAfterTarget) + gameIdx;
     }
 
-    private static JSONObject setupMetadata(Options opts, int iteration, int gameIdx,
+    private static JSONObject setupMetadata(Options opts, int iteration, int gameIdx, int episode,
                                             long levelSeed, long gameSeed,
                                             GameSetup setup, String mapSplit) {
         JSONObject obj = new JSONObject();
-        obj.put("episode", trainingEpisode(opts, iteration, gameIdx));
+        obj.put("episode", episode);
         obj.put("iteration", iteration);
         obj.put("game_index", gameIdx);
         obj.put("level_seed", levelSeed);
@@ -283,8 +283,7 @@ public class AlphaZeroTrainer {
         obj.put("map_snapshot_dir", opts.mapSnapshotDir);
         obj.put("map_snapshot_split", mapSplit);
         obj.put("map_snapshot_file",
-                MapSnapshotWriter.fileName(mapSplit, trainingEpisode(opts, iteration, gameIdx),
-                        gameIdx, levelSeed, gameSeed));
+                MapSnapshotWriter.fileName(mapSplit, episode, gameIdx, levelSeed, gameSeed));
         obj.put("random_tribes", opts.randomTribes);
         obj.put("random_player_count", opts.randomPlayerCount);
         obj.put("value_model", opts.modelPath);
@@ -320,7 +319,7 @@ public class AlphaZeroTrainer {
         }
         obj.put("seat_tribes", tribeNames);
         obj.put("target_az_seat", setup.targetSeat);
-        obj.put("target_tribe", "recorded_seat");
+        obj.put("target_tribe", setup.targetTribe().name());
         return obj;
     }
 
@@ -401,9 +400,11 @@ public class AlphaZeroTrainer {
 
             long firstLevelSeed = opts.nextLevelSeed(seed);
             GameSetup firstSetup = evalSetup(opts, opponent, seed + 13);
+            JSONObject firstMetadata = setupMetadata(opts, 0, i * 2, i,
+                    firstLevelSeed, seed + 13, firstSetup, "eval-" + opponent + "-az-first");
             Game first = runOneGame(firstSetup.agents(seed + 1, opts), firstSetup.tribes,
                     firstLevelSeed, seed + 13, opts, "eval-" + opponent + "-az-first",
-                    i, i * 2, opponent);
+                    i, i * 2, opponent, firstMetadata);
             result.add(outcomeForTribe(first, firstSetup.targetTribe()));
 
             long secondLevelSeed = opts.randomLevelSeeds ? opts.nextLevelSeed(seed + 1) : seed;
@@ -414,9 +415,11 @@ public class AlphaZeroTrainer {
                 secondSetup = new GameSetup(new String[]{opponent, "AZ"},
                         new Types.TRIBE[]{XIN_XI, IMPERIUS}, 1);
             }
+            JSONObject secondMetadata = setupMetadata(opts, 0, i * 2 + 1, i,
+                    secondLevelSeed, seed + 29, secondSetup, "eval-" + opponent + "-az-second");
             Game second = runOneGame(secondSetup.agents(seed + 3, opts), secondSetup.tribes,
                     secondLevelSeed, seed + 29, opts, "eval-" + opponent + "-az-second",
-                    i, i * 2 + 1, opponent);
+                    i, i * 2 + 1, opponent, secondMetadata);
             result.add(outcomeForTribe(second, secondSetup.targetTribe()));
         }
         return result;
@@ -429,16 +432,16 @@ public class AlphaZeroTrainer {
         players.add(a);
         players.add(b);
         return runOneGame(players, new Types.TRIBE[]{XIN_XI, IMPERIUS}, levelSeed, gameSeed,
-                opts, mapSplit, episode, gameIndex, opponent);
+                opts, mapSplit, episode, gameIndex, opponent, null);
     }
 
     private static Game runOneGame(ArrayList<Agent> players, Types.TRIBE[] tribes, long levelSeed,
                                    long gameSeed, Options opts, String mapSplit, int episode,
-                                   int gameIndex, String opponent) {
+                                   int gameIndex, String opponent, JSONObject setupMetadata) {
         Game game = new Game();
         game.init(players, levelSeed, tribes, gameSeed, CAPITALS);
         MapSnapshotWriter.write(opts.mapSnapshotDir, mapSplit, episode, gameIndex,
-                levelSeed, gameSeed, opponent, game);
+                levelSeed, gameSeed, opponent, game, setupMetadata);
         game.run(null, null);
         return game;
     }

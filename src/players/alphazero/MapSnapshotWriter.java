@@ -11,6 +11,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.Iterator;
 
 public final class MapSnapshotWriter {
 
@@ -23,7 +24,8 @@ public final class MapSnapshotWriter {
     }
 
     public static synchronized void write(String dir, String split, int episode, int gameIndex,
-                                          long levelSeed, long gameSeed, String opponent, Game game) {
+                                          long levelSeed, long gameSeed, String opponent, Game game,
+                                          JSONObject setupMetadata) {
         if (dir == null || dir.trim().isEmpty() || game == null) {
             return;
         }
@@ -43,6 +45,16 @@ public final class MapSnapshotWriter {
             manifest.put("game_seed", gameSeed);
             manifest.put("opponent", opponent);
             manifest.put("csv", csv.getName());
+            if (setupMetadata != null) {
+                Iterator<String> keys = setupMetadata.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    if (!manifest.has(key)) {
+                        manifest.put(key, setupMetadata.get(key));
+                    }
+                }
+                manifest.put("setup", setupMetadata);
+            }
             manifest.put("rows", rows);
 
             BufferedWriter writer = new BufferedWriter(new FileWriter(new File(root, "manifest.jsonl"), true));
