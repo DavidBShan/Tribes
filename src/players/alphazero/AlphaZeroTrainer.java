@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Random;
 
 import static core.Types.GAME_MODE.CAPITALS;
@@ -48,6 +49,9 @@ public class AlphaZeroTrainer {
                 + " untilTick=" + opts.visitSamplingUntilTick);
         System.out.println("randomLevelSeeds=" + opts.randomLevelSeeds
                 + " mapSnapshotDir=" + opts.mapSnapshotDir);
+        System.out.println("randomTribes=" + opts.randomTribes
+                + " randomPlayerCount=" + opts.randomPlayerCount
+                + " playerRange=" + opts.minPlayers + "-" + opts.maxPlayers);
         System.out.println("valuePositionBlend=" + opts.valuePositionBlend
                 + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " searchPositionBlend=" + opts.positionBlend
@@ -240,13 +244,21 @@ public class AlphaZeroTrainer {
             }
 
             int episode = trainingEpisode(opts, iteration, gameIdx);
-            JSONObject setup = setupMetadata(opts, iteration, gameIdx, levelSeed, gameSeed, opponent, "train");
-            Agent a = recording("AZ", newAlphaZero(seed, opts, true), opts, trajectoryWriter,
-                    setup, episode, 0, seed + 1);
-            Agent b = recording(opponent, newAgent(opponent, seed + 2, opts, true), opts, trajectoryWriter,
-                    setup, episode, 1, seed + 3);
-            runOneGame(a, b, levelSeed, gameSeed, opts, "train", episode, gameIdx, opponent);
-            System.out.println("data game " + (gameIdx + 1) + "/" + nGames + " vs " + opponent);
+            GameSetup gameSetup = trainingSetup(opts, seed, opponent, selfPlayOnly);
+            JSONObject setup = setupMetadata(opts, iteration, gameIdx, levelSeed, gameSeed,
+                    gameSetup, "train");
+            ArrayList<Agent> players = new ArrayList<>();
+            for (int seat = 0; seat < gameSetup.bots.length; seat++) {
+                String bot = gameSetup.bots[seat];
+                players.add(recording(bot, newAgent(bot, seed + 2 + seat * 17L, opts, true),
+                        opts, trajectoryWriter, setup, episode, seat, seed + 3 + seat * 19L));
+            }
+            runOneGame(players, gameSetup.tribes, levelSeed, gameSeed, opts, "train",
+                    episode, gameIdx, gameSetup.opponentLabel());
+            System.out.println("data game " + (gameIdx + 1) + "/" + nGames
+                    + " vs " + gameSetup.opponentLabel()
+                    + " players=" + gameSetup.bots.length
+                    + " tribes=" + gameSetup.tribeLabel());
         }
     }
 
@@ -256,7 +268,7 @@ public class AlphaZeroTrainer {
 
     private static JSONObject setupMetadata(Options opts, int iteration, int gameIdx,
                                             long levelSeed, long gameSeed,
-                                            String opponent, String mapSplit) {
+                                            GameSetup setup, String mapSplit) {
         JSONObject obj = new JSONObject();
         obj.put("episode", trainingEpisode(opts, iteration, gameIdx));
         obj.put("iteration", iteration);
@@ -264,7 +276,8 @@ public class AlphaZeroTrainer {
         obj.put("level_seed", levelSeed);
         obj.put("game_seed", gameSeed);
         obj.put("game_mode", CAPITALS.name());
-        obj.put("players", "az_training");
+        obj.put("players", opts.randomPlayerCount ? "randomized" : "az_training");
+        obj.put("player_count", setup.bots.length);
         obj.put("map", "procedural");
         obj.put("random_level_seeds", opts.randomLevelSeeds);
         obj.put("map_snapshot_dir", opts.mapSnapshotDir);
@@ -272,13 +285,14 @@ public class AlphaZeroTrainer {
         obj.put("map_snapshot_file",
                 MapSnapshotWriter.fileName(mapSplit, trainingEpisode(opts, iteration, gameIdx),
                         gameIdx, levelSeed, gameSeed));
-        obj.put("random_tribes", false);
+        obj.put("random_tribes", opts.randomTribes);
+        obj.put("random_player_count", opts.randomPlayerCount);
         obj.put("value_model", opts.modelPath);
         obj.put("policy_model", opts.policyPath);
         obj.put("search_calls", opts.searchFmCalls);
         obj.put("opponent_calls", opts.opponentFmCalls);
         obj.put("search_depth", opts.searchDepth);
-        obj.put("opponent", opponent);
+        obj.put("opponent", setup.opponentLabel());
         obj.put("training_opponents", opts.trainingOpponentsCsv);
         obj.put("policy_targets", opts.policyTargetMode);
         obj.put("policy_logit_weight", opts.policyLogitWeight);
@@ -295,16 +309,80 @@ public class AlphaZeroTrainer {
         obj.put("reference_refresh_interval", opts.referenceRefreshInterval);
 
         JSONArray bots = new JSONArray();
-        bots.put("AZ");
-        bots.put(opponent);
+        for (String bot : setup.bots) {
+            bots.put(bot);
+        }
         obj.put("seat_bots", bots);
 
         JSONArray tribeNames = new JSONArray();
-        tribeNames.put(XIN_XI.name());
-        tribeNames.put(IMPERIUS.name());
+        for (Types.TRIBE tribe : setup.tribes) {
+            tribeNames.put(tribe.name());
+        }
         obj.put("seat_tribes", tribeNames);
+        obj.put("target_az_seat", setup.targetSeat);
         obj.put("target_tribe", "recorded_seat");
         return obj;
+    }
+
+    private static GameSetup trainingSetup(Options opts, long seed, String scheduledOpponent,
+                                           boolean selfPlayOnly) {
+        if (!opts.randomPlayerCount && !opts.randomTribes) {
+            return new GameSetup(new String[]{"AZ", scheduledOpponent},
+                    new Types.TRIBE[]{XIN_XI, IMPERIUS}, 0);
+        }
+
+        Random rnd = new Random(seed ^ 0x9E3779B97F4A7C15L);
+        int playerCount = opts.randomPlayerCount ? opts.randomPlayerCount(rnd) : 2;
+        Types.TRIBE[] tribes = opts.randomTribes ? randomTribes(playerCount, rnd)
+                : fixedTribes(playerCount);
+        String[] bots = new String[playerCount];
+        int targetSeat = rnd.nextInt(playerCount);
+        for (int seat = 0; seat < playerCount; seat++) {
+            if (selfPlayOnly || seat == targetSeat) {
+                bots[seat] = "AZ";
+            } else {
+                bots[seat] = opts.randomTrainingOpponent(rnd);
+            }
+        }
+        return new GameSetup(bots, tribes, targetSeat);
+    }
+
+    private static GameSetup evalSetup(Options opts, String opponent, long seed) {
+        if (!opts.randomPlayerCount && !opts.randomTribes) {
+            return new GameSetup(new String[]{"AZ", opponent},
+                    new Types.TRIBE[]{XIN_XI, IMPERIUS}, 0);
+        }
+
+        Random rnd = new Random(seed ^ 0xD1B54A32D192ED03L);
+        int playerCount = opts.randomPlayerCount ? opts.randomPlayerCount(rnd) : 2;
+        Types.TRIBE[] tribes = opts.randomTribes ? randomTribes(playerCount, rnd)
+                : fixedTribes(playerCount);
+        String[] bots = new String[playerCount];
+        int targetSeat = rnd.nextInt(playerCount);
+        for (int seat = 0; seat < playerCount; seat++) {
+            bots[seat] = seat == targetSeat ? "AZ" : opponent;
+        }
+        return new GameSetup(bots, tribes, targetSeat);
+    }
+
+    private static Types.TRIBE[] fixedTribes(int count) {
+        Types.TRIBE[] available = Types.TRIBE.values();
+        Types.TRIBE[] tribes = new Types.TRIBE[count];
+        for (int i = 0; i < count; i++) {
+            tribes[i] = available[i % available.length];
+        }
+        return tribes;
+    }
+
+    private static Types.TRIBE[] randomTribes(int count, Random rnd) {
+        ArrayList<Types.TRIBE> tribes = new ArrayList<>();
+        Collections.addAll(tribes, Types.TRIBE.values());
+        Collections.shuffle(tribes, rnd);
+        Types.TRIBE[] out = new Types.TRIBE[count];
+        for (int i = 0; i < count; i++) {
+            out[i] = tribes.get(i);
+        }
+        return out;
     }
 
     private static RecordingAgent recording(String botName, Agent agent, Options opts,
@@ -322,16 +400,24 @@ public class AlphaZeroTrainer {
             long seed = seedBase + i * 997L;
 
             long firstLevelSeed = opts.nextLevelSeed(seed);
-            Game first = runOneGame(newAlphaZero(seed + 1, opts), newAgent(opponent, seed + 2, opts),
+            GameSetup firstSetup = evalSetup(opts, opponent, seed + 13);
+            Game first = runOneGame(firstSetup.agents(seed + 1, opts), firstSetup.tribes,
                     firstLevelSeed, seed + 13, opts, "eval-" + opponent + "-az-first",
                     i, i * 2, opponent);
-            result.add(outcomeForTribe(first, XIN_XI));
+            result.add(outcomeForTribe(first, firstSetup.targetTribe()));
 
             long secondLevelSeed = opts.randomLevelSeeds ? opts.nextLevelSeed(seed + 1) : seed;
-            Game second = runOneGame(newAgent(opponent, seed + 3, opts), newAlphaZero(seed + 4, opts),
+            GameSetup secondSetup;
+            if (opts.randomPlayerCount || opts.randomTribes) {
+                secondSetup = evalSetup(opts, opponent, seed + 29);
+            } else {
+                secondSetup = new GameSetup(new String[]{opponent, "AZ"},
+                        new Types.TRIBE[]{XIN_XI, IMPERIUS}, 1);
+            }
+            Game second = runOneGame(secondSetup.agents(seed + 3, opts), secondSetup.tribes,
                     secondLevelSeed, seed + 29, opts, "eval-" + opponent + "-az-second",
                     i, i * 2 + 1, opponent);
-            result.add(outcomeForTribe(second, IMPERIUS));
+            result.add(outcomeForTribe(second, secondSetup.targetTribe()));
         }
         return result;
     }
@@ -342,9 +428,15 @@ public class AlphaZeroTrainer {
         ArrayList<Agent> players = new ArrayList<>();
         players.add(a);
         players.add(b);
+        return runOneGame(players, new Types.TRIBE[]{XIN_XI, IMPERIUS}, levelSeed, gameSeed,
+                opts, mapSplit, episode, gameIndex, opponent);
+    }
 
+    private static Game runOneGame(ArrayList<Agent> players, Types.TRIBE[] tribes, long levelSeed,
+                                   long gameSeed, Options opts, String mapSplit, int episode,
+                                   int gameIndex, String opponent) {
         Game game = new Game();
-        game.init(players, levelSeed, new Types.TRIBE[]{XIN_XI, IMPERIUS}, gameSeed, CAPITALS);
+        game.init(players, levelSeed, tribes, gameSeed, CAPITALS);
         MapSnapshotWriter.write(opts.mapSnapshotDir, mapSplit, episode, gameIndex,
                 levelSeed, gameSeed, opponent, game);
         game.run(null, null);
@@ -465,6 +557,48 @@ public class AlphaZeroTrainer {
         params.visitSamplingTemperature = 0.0;
         params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
+    }
+
+    private static class GameSetup {
+        final String[] bots;
+        final Types.TRIBE[] tribes;
+        final int targetSeat;
+
+        GameSetup(String[] bots, Types.TRIBE[] tribes, int targetSeat) {
+            this.bots = bots;
+            this.tribes = tribes;
+            this.targetSeat = targetSeat;
+        }
+
+        Types.TRIBE targetTribe() {
+            return tribes[targetSeat];
+        }
+
+        ArrayList<Agent> agents(long seed, Options opts) {
+            ArrayList<Agent> agents = new ArrayList<>();
+            for (int i = 0; i < bots.length; i++) {
+                agents.add(newAgent(bots[i], seed + i * 17L, opts));
+            }
+            return agents;
+        }
+
+        String opponentLabel() {
+            ArrayList<String> labels = new ArrayList<>();
+            for (int i = 0; i < bots.length; i++) {
+                if (i != targetSeat) {
+                    labels.add(bots[i]);
+                }
+            }
+            return String.join("+", labels);
+        }
+
+        String tribeLabel() {
+            ArrayList<String> labels = new ArrayList<>();
+            for (Types.TRIBE tribe : tribes) {
+                labels.add(tribe.name());
+            }
+            return String.join("+", labels);
+        }
     }
 
     private static class EvalOutcome {
@@ -675,6 +809,10 @@ public class AlphaZeroTrainer {
         boolean selfPlayAfterTarget = true;
         boolean selfPlayOnly = false;
         boolean randomLevelSeeds = false;
+        boolean randomTribes = false;
+        boolean randomPlayerCount = false;
+        int minPlayers = 2;
+        int maxPlayers = 2;
         boolean recordTrajectories = true;
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
@@ -757,6 +895,10 @@ public class AlphaZeroTrainer {
                 else if ("self-play-after-target".equals(key)) opts.selfPlayAfterTarget = Boolean.parseBoolean(value);
                 else if ("self-play-only".equals(key)) opts.selfPlayOnly = Boolean.parseBoolean(value);
                 else if ("random-level-seeds".equals(key)) opts.randomLevelSeeds = Boolean.parseBoolean(value);
+                else if ("random-tribes".equals(key)) opts.randomTribes = Boolean.parseBoolean(value);
+                else if ("random-player-count".equals(key)) opts.randomPlayerCount = Boolean.parseBoolean(value);
+                else if ("min-players".equals(key)) opts.minPlayers = Integer.parseInt(value);
+                else if ("max-players".equals(key)) opts.maxPlayers = Integer.parseInt(value);
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
@@ -801,6 +943,8 @@ public class AlphaZeroTrainer {
             if (bestPolicyPath == null || bestPolicyPath.trim().isEmpty()) {
                 bestPolicyPath = derivedBestPath(policyPath);
             }
+            minPlayers = Math.max(2, Math.min(Types.TRIBE.values().length, minPlayers));
+            maxPlayers = Math.max(minPlayers, Math.min(Types.TRIBE.values().length, maxPlayers));
         }
 
         private static String derivedBestPath(String path) {
@@ -831,6 +975,21 @@ public class AlphaZeroTrainer {
                 opponents.add("AZ");
             }
             return opponents.get(Math.floorMod(gameIdx, opponents.size()));
+        }
+
+        String randomTrainingOpponent(Random rnd) {
+            ArrayList<String> opponents = csv(trainingOpponentsCsv);
+            if (opponents.isEmpty()) {
+                opponents.add("AZ");
+            }
+            return opponents.get(rnd.nextInt(opponents.size()));
+        }
+
+        int randomPlayerCount(Random rnd) {
+            if (maxPlayers <= minPlayers) {
+                return minPlayers;
+            }
+            return minPlayers + rnd.nextInt(maxPlayers - minPlayers + 1);
         }
 
         private static ArrayList<String> csv(String value) {
