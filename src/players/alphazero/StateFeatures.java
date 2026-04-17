@@ -17,6 +17,9 @@ import java.util.ArrayList;
 public final class StateFeatures {
 
     private static final int METRIC_COUNT = 13;
+    private static final double OUTCOME_WIN_BASE = 0.70;
+    private static final double OUTCOME_MARGIN_WEIGHT = 1.0 - OUTCOME_WIN_BASE;
+    private static final double OUTCOME_MARGIN_SCALE = 7000.0;
     public static final int FEATURE_COUNT = 3 + METRIC_COUNT * 3;
 
     private StateFeatures() {
@@ -79,13 +82,13 @@ public final class StateFeatures {
     public static double outcomeLabel(GameState finalState, int playerID, ArrayList<Integer> allIds) {
         Types.RESULT result = finalState.getTribeWinStatus(playerID);
         double margin = scoreMargin(finalState, playerID, allIds);
-        double marginValue = Math.tanh(margin / 12000.0);
+        double marginValue = Math.tanh(margin / OUTCOME_MARGIN_SCALE);
 
         if (result == Types.RESULT.WIN) {
-            return clamp(0.80 + 0.20 * marginValue);
+            return clamp(OUTCOME_WIN_BASE + OUTCOME_MARGIN_WEIGHT * marginValue);
         }
         if (result == Types.RESULT.LOSS) {
-            return clamp(-0.80 + 0.20 * marginValue);
+            return clamp(-OUTCOME_WIN_BASE + OUTCOME_MARGIN_WEIGHT * marginValue);
         }
         return clamp(marginValue);
     }
