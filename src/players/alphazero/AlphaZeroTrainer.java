@@ -442,7 +442,7 @@ public class AlphaZeroTrainer {
             Game first = runOneGame(firstSetup.agents(seed + 1, opts), firstSetup.tribes,
                     firstLevelSeed, seed + 13, opts, "eval-" + opponent + "-az-first",
                     i, i * 2, opponent, firstMetadata);
-            result.add(outcomeForTribe(first, firstSetup.targetTribe()));
+            result.add(outcomeForTribe(first, firstSetup.targetTribe()), firstSetup.bots.length);
 
             long secondLevelSeed = opts.randomLevelSeeds ? opts.nextLevelSeed(seed + 1) : seed;
             GameSetup secondSetup;
@@ -457,7 +457,7 @@ public class AlphaZeroTrainer {
             Game second = runOneGame(secondSetup.agents(seed + 3, opts), secondSetup.tribes,
                     secondLevelSeed, seed + 29, opts, "eval-" + opponent + "-az-second",
                     i, i * 2 + 1, opponent, secondMetadata);
-            result.add(outcomeForTribe(second, secondSetup.targetTribe()));
+            result.add(outcomeForTribe(second, secondSetup.targetTribe()), secondSetup.bots.length);
         }
         return result;
     }
@@ -670,16 +670,20 @@ public class AlphaZeroTrainer {
         int scoreTotal;
         int opponentScoreTotal;
         int marginTotal;
+        final int[] playerCountBuckets = new int[Types.TRIBE.values().length + 1];
 
         MatchResult(String agent, String opponent) {
             this.agent = agent;
             this.opponent = opponent;
         }
 
-        void add(EvalOutcome outcome) {
+        void add(EvalOutcome outcome, int playerCount) {
             scoreTotal += outcome.score;
             opponentScoreTotal += outcome.opponentScore;
             marginTotal += outcome.margin();
+            if (playerCount >= 0 && playerCount < playerCountBuckets.length) {
+                playerCountBuckets[playerCount]++;
+            }
             if (outcome.result == Types.RESULT.WIN) {
                 wins++;
             } else if (outcome.result == Types.RESULT.LOSS) {
@@ -704,9 +708,19 @@ public class AlphaZeroTrainer {
             int n = wins + losses + incomplete;
             double avgScore = n == 0 ? 0.0 : (double) scoreTotal / n;
             double avgOpponentScore = n == 0 ? 0.0 : (double) opponentScoreTotal / n;
-            return String.format("eval %s vs %s: W=%d L=%d I=%d N=%d winRate=%.3f avgScore=%.1f avgOppScore=%.1f avgMargin=%.1f",
-                    agent, opponent, wins, losses, incomplete, n, winRate(),
-                    avgScore, avgOpponentScore, avgMargin());
+            return String.format("eval %s vs %s: W=%d L=%d I=%d N=%d players=%s winRate=%.3f avgScore=%.1f avgOppScore=%.1f avgMargin=%.1f",
+                    agent, opponent, wins, losses, incomplete, n, playerCountSummary(),
+                    winRate(), avgScore, avgOpponentScore, avgMargin());
+        }
+
+        private String playerCountSummary() {
+            ArrayList<String> parts = new ArrayList<>();
+            for (int i = 0; i < playerCountBuckets.length; i++) {
+                if (playerCountBuckets[i] > 0) {
+                    parts.add(i + "p:" + playerCountBuckets[i]);
+                }
+            }
+            return parts.isEmpty() ? "none" : String.join(",", parts);
         }
     }
 
