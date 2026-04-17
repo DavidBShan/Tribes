@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,10 +65,10 @@ public final class PolicyDataset {
     }
 
     public static ArrayList<PolicyTrainingExample> load(String path, int maxExamples) {
-        ArrayList<PolicyTrainingExample> examples = new ArrayList<>();
+        ArrayDeque<PolicyTrainingExample> examples = new ArrayDeque<>();
         File file = new File(path);
         if (!file.exists()) {
-            return examples;
+            return new ArrayList<>();
         }
 
         try {
@@ -88,14 +89,14 @@ public final class PolicyDataset {
                     features[i] = Double.parseDouble(parts[i + 1]);
                 }
                 if (parts[0].startsWith("soft:")) {
-                    examples.add(new PolicyTrainingExample(parseSoftTarget(parts[0]), features));
+                    examples.addLast(new PolicyTrainingExample(parseSoftTarget(parts[0]), features));
                 } else {
                     int actionType = Integer.parseInt(parts[0]);
-                    examples.add(new PolicyTrainingExample(actionType, features));
+                    examples.addLast(new PolicyTrainingExample(actionType, features));
                 }
 
-                if (maxExamples > 0 && examples.size() >= maxExamples) {
-                    break;
+                if (maxExamples > 0 && examples.size() > maxExamples) {
+                    examples.removeFirst();
                 }
             }
             reader.close();
@@ -103,7 +104,7 @@ public final class PolicyDataset {
             throw new RuntimeException("Could not load policy training data from " + path, e);
         }
 
-        return examples;
+        return new ArrayList<>(examples);
     }
 
     private static double[] parseSoftTarget(String value) {
