@@ -18,6 +18,7 @@ public class AZParams extends AlgParams {
     public double advisorOverrideMargin = 0.08;
     public double greedyPriorityThreshold = 99.0;
     public double policyLogitWeight = 0.06;
+    public double actionPolicyLogitWeight = 0.0;
     public double positionBlend = 0.20;
     public double rootNoiseFraction = 0.0;
     public double rootDirichletAlpha = 0.30;
@@ -33,6 +34,7 @@ public class AZParams extends AlgParams {
     public String networkType = ModelFactory.LINEAR;
     public String modelPath = "models/alphazero-value.tsv";
     public String policyPath = "models/alphazero-policy.tsv";
+    public String actionPolicyPath = "";
 
     public AZParams() {
         stop_type = STOP_FMCALLS;

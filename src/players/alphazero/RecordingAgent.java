@@ -15,6 +15,7 @@ public class RecordingAgent extends Agent {
     private final String botName;
     private final String datasetPath;
     private final String policyDatasetPath;
+    private final String actionPolicyDatasetPath;
     private final String policyTargetMode;
     private final SftTrajectoryWriter trajectoryWriter;
     private final JSONObject setupMetadata;
@@ -33,12 +34,13 @@ public class RecordingAgent extends Agent {
 
     public RecordingAgent(Agent delegate, String datasetPath, String policyDatasetPath,
                           double sampleProbability, int maxExamplesPerGame, long seed) {
-        this(delegate, "unknown", datasetPath, policyDatasetPath, null, new JSONObject(),
+        this(delegate, "unknown", datasetPath, policyDatasetPath, null, null, new JSONObject(),
                 -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action", 0.0, 0.0, seed);
     }
 
     public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
-                          SftTrajectoryWriter trajectoryWriter, JSONObject setupMetadata, int episode, int seat,
+                          String actionPolicyDatasetPath, SftTrajectoryWriter trajectoryWriter,
+                          JSONObject setupMetadata, int episode, int seat,
                           double sampleProbability, int maxExamplesPerGame,
                           double trajectorySampleProbability, int maxTrajectoriesPerGame,
                           String policyTargetMode, double valuePositionBlend, double terminalPositionBlend,
@@ -48,6 +50,7 @@ public class RecordingAgent extends Agent {
         this.botName = botName;
         this.datasetPath = datasetPath;
         this.policyDatasetPath = policyDatasetPath;
+        this.actionPolicyDatasetPath = actionPolicyDatasetPath;
         this.policyTargetMode = policyTargetMode == null ? "action" : policyTargetMode;
         this.trajectoryWriter = trajectoryWriter;
         this.setupMetadata = setupMetadata == null ? new JSONObject() : new JSONObject(setupMetadata.toString());
@@ -86,6 +89,9 @@ public class RecordingAgent extends Agent {
             ArrayList<PolicyTrainingExample> policyExamples = new ArrayList<>();
             policyExamples.add(policyExample(action, features));
             PolicyDataset.append(policyDatasetPath, policyExamples);
+            ArrayList<ActionPolicyTrainingExample> actionPolicyExamples =
+                    ((AlphaZeroAgent) delegate).lastActionPolicyExamples();
+            ActionPolicyDataset.append(actionPolicyDatasetPath, actionPolicyExamples);
         }
         if (shouldRecordTrajectory() && action != null) {
             trajectoryWriter.writeSample(episode, localActionIndex, botName, seat, playerID, setupMetadata,
@@ -144,8 +150,8 @@ public class RecordingAgent extends Agent {
         if (delegateCopy == null) {
             delegateCopy = delegate;
         }
-        return new RecordingAgent(delegateCopy, botName, datasetPath, policyDatasetPath, trajectoryWriter,
-                setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
+        return new RecordingAgent(delegateCopy, botName, datasetPath, policyDatasetPath, actionPolicyDatasetPath,
+                trajectoryWriter, setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
                 trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode,
                 valuePositionBlend, terminalPositionBlend, seed);
     }

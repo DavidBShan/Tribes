@@ -37,6 +37,11 @@ public class AlphaZeroTrainer {
         }
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
+        if (!opts.actionPolicyPath.isEmpty()) {
+            System.out.println("actionPolicyModel=" + opts.actionPolicyPath
+                    + " actionPolicyData=" + opts.actionPolicyDataPath
+                    + " actionPolicyLogitWeight=" + opts.actionPolicyLogitWeight);
+        }
         System.out.println("policyTargets=" + opts.policyTargetMode);
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
@@ -118,6 +123,21 @@ public class AlphaZeroTrainer {
                     System.out.println("trained policy on 0 examples; skipped");
                 }
 
+                if (!opts.actionPolicyPath.isEmpty()) {
+                    ArrayList<ActionPolicyTrainingExample> actionPolicyExamples =
+                            ActionPolicyDataset.load(opts.actionPolicyDataPath, opts.maxTrainingExamples);
+                    ActionPolicyModel actionPolicy = ModelFactory.loadActionPolicy(opts.actionPolicyPath);
+                    if (!actionPolicyExamples.isEmpty()) {
+                        double actionPolicyLoss = actionPolicy.train(actionPolicyExamples, opts.policyEpochs,
+                                opts.policyLearningRate, opts.l2, opts.seed + 1999L * iteration);
+                        actionPolicy.save(opts.actionPolicyPath);
+                        System.out.printf("trained action policy on %d examples; xent=%.5f%n",
+                                actionPolicyExamples.size(), actionPolicyLoss);
+                    } else {
+                        System.out.println("trained action policy on 0 examples; skipped");
+                    }
+                }
+
                 MatchResult simple = evaluate(opts, "SIMPLE", opts.evalGames, opts.seed + 100000L * iteration);
                 MatchResult osla = evaluate(opts, "OSLA", opts.evalGames, opts.seed + 200000L * iteration);
                 System.out.println(simple);
@@ -179,6 +199,7 @@ public class AlphaZeroTrainer {
     private static void saveBestCheckpoint(Options opts) throws IOException {
         copyFile(opts.modelPath, opts.bestModelPath);
         copyFile(opts.policyPath, opts.bestPolicyPath);
+        copyFileIfConfigured(opts.actionPolicyPath, opts.bestActionPolicyPath);
     }
 
     private static void restoreBestCheckpoint(Options opts) throws IOException {
@@ -187,6 +208,9 @@ public class AlphaZeroTrainer {
         }
         if (Files.exists(Path.of(opts.bestPolicyPath))) {
             copyFile(opts.bestPolicyPath, opts.policyPath);
+        }
+        if (!opts.actionPolicyPath.isEmpty() && Files.exists(Path.of(opts.bestActionPolicyPath))) {
+            copyFile(opts.bestActionPolicyPath, opts.actionPolicyPath);
         }
     }
 
@@ -197,6 +221,19 @@ public class AlphaZeroTrainer {
         if (Files.exists(Path.of(opts.bestPolicyPath))) {
             copyFile(opts.bestPolicyPath, opts.referencePolicyPath);
         }
+        if (!opts.actionPolicyPath.isEmpty() && Files.exists(Path.of(opts.bestActionPolicyPath))) {
+            copyFile(opts.bestActionPolicyPath, opts.referenceActionPolicyPath);
+        }
+    }
+
+    private static void copyFileIfConfigured(String source, String target) throws IOException {
+        if (source == null || source.trim().isEmpty() || target == null || target.trim().isEmpty()) {
+            return;
+        }
+        if (!Files.exists(Path.of(source))) {
+            return;
+        }
+        copyFile(source, target);
     }
 
     private static void copyFile(String source, String target) throws IOException {
@@ -387,8 +424,8 @@ public class AlphaZeroTrainer {
     private static RecordingAgent recording(String botName, Agent agent, Options opts,
                                             SftTrajectoryWriter trajectoryWriter, JSONObject setupMetadata,
                                             int episode, int seat, long seed) {
-        return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, trajectoryWriter,
-                setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
+        return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, opts.actionPolicyDataPath,
+                trajectoryWriter, setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
                 opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
                 opts.valuePositionBlend, opts.terminalPositionBlend, seed);
     }
@@ -506,6 +543,7 @@ public class AlphaZeroTrainer {
         AZParams params = new AZParams();
         params.modelPath = opts.modelPath;
         params.policyPath = opts.policyPath;
+        params.actionPolicyPath = opts.actionPolicyPath;
         params.networkType = opts.networkType;
         params.num_fmcalls = opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
@@ -519,6 +557,7 @@ public class AlphaZeroTrainer {
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.policyLogitWeight = opts.policyLogitWeight;
+        params.actionPolicyLogitWeight = opts.actionPolicyLogitWeight;
         params.tacticalShortcuts = opts.tacticalShortcuts;
         params.advisorOverride = opts.advisorOverride;
         params.staticPriors = opts.staticPriors;
@@ -536,6 +575,7 @@ public class AlphaZeroTrainer {
         AZParams params = new AZParams();
         params.modelPath = opts.referenceModelPath;
         params.policyPath = opts.referencePolicyPath;
+        params.actionPolicyPath = opts.referenceActionPolicyPath;
         params.networkType = opts.referenceNetworkType.isEmpty() ? opts.networkType : opts.referenceNetworkType;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
@@ -549,6 +589,7 @@ public class AlphaZeroTrainer {
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.policyLogitWeight = opts.policyLogitWeight;
+        params.actionPolicyLogitWeight = opts.actionPolicyLogitWeight;
         params.tacticalShortcuts = opts.tacticalShortcuts;
         params.advisorOverride = opts.advisorOverride;
         params.staticPriors = opts.staticPriors;
@@ -753,16 +794,20 @@ public class AlphaZeroTrainer {
     private static class Options {
         String modelPath = "models/alphazero-value.tsv";
         String policyPath = "models/alphazero-policy.tsv";
+        String actionPolicyPath = "";
         String networkType = ModelFactory.LINEAR;
         String referenceNetworkType = "";
         String bestModelPath = "";
         String bestPolicyPath = "";
+        String bestActionPolicyPath = "";
         String dataPath = "training/alphazero-value-data.tsv";
         String policyDataPath = "training/alphazero-policy-data.tsv";
+        String actionPolicyDataPath = "";
         String trajectoryPath = "training/alphazero-sft-trajectories.jsonl";
         String mapSnapshotDir = "";
         String referenceModelPath = "models/alphazero-value.tsv";
         String referencePolicyPath = "models/alphazero-policy.tsv";
+        String referenceActionPolicyPath = "";
         String trainingOpponentsCsv = "SIMPLE,OSLA,AZ";
         String policyTargetMode = "action";
         String promptId = "alphazero-training-sft-v1";
@@ -798,6 +843,7 @@ public class AlphaZeroTrainer {
         double positionBlend = 0.20;
         double advisorOverrideMargin = 0.08;
         double policyLogitWeight = 0.06;
+        double actionPolicyLogitWeight = 0.0;
         double valuePositionBlend = 0.0;
         double terminalPositionBlend = 0.0;
         double cpuct = 1.50;
@@ -840,16 +886,20 @@ public class AlphaZeroTrainer {
 
                 if ("model".equals(key)) opts.modelPath = value;
                 else if ("policy".equals(key)) opts.policyPath = value;
+                else if ("action-policy".equals(key)) opts.actionPolicyPath = value;
                 else if ("network-type".equals(key)) opts.networkType = value;
                 else if ("reference-network-type".equals(key)) opts.referenceNetworkType = value;
                 else if ("best-model".equals(key)) opts.bestModelPath = value;
                 else if ("best-policy".equals(key)) opts.bestPolicyPath = value;
+                else if ("best-action-policy".equals(key)) opts.bestActionPolicyPath = value;
                 else if ("data".equals(key)) opts.dataPath = value;
                 else if ("policy-data".equals(key)) opts.policyDataPath = value;
+                else if ("action-policy-data".equals(key)) opts.actionPolicyDataPath = value;
                 else if ("trajectory-data".equals(key)) opts.trajectoryPath = value;
                 else if ("map-snapshot-dir".equals(key)) opts.mapSnapshotDir = value;
                 else if ("reference-model".equals(key)) opts.referenceModelPath = value;
                 else if ("reference-policy".equals(key)) opts.referencePolicyPath = value;
+                else if ("reference-action-policy".equals(key)) opts.referenceActionPolicyPath = value;
                 else if ("training-opponents".equals(key)) opts.trainingOpponentsCsv = value;
                 else if ("policy-targets".equals(key)) opts.policyTargetMode = value;
                 else if ("prompt-id".equals(key)) opts.promptId = value;
@@ -887,6 +937,7 @@ public class AlphaZeroTrainer {
                 else if ("position-blend".equals(key)) opts.positionBlend = Double.parseDouble(value);
                 else if ("advisor-margin".equals(key)) opts.advisorOverrideMargin = Double.parseDouble(value);
                 else if ("policy-logit-weight".equals(key)) opts.policyLogitWeight = Double.parseDouble(value);
+                else if ("action-policy-logit-weight".equals(key)) opts.actionPolicyLogitWeight = Double.parseDouble(value);
                 else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
                 else if ("terminal-position-blend".equals(key)) opts.terminalPositionBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
@@ -946,6 +997,17 @@ public class AlphaZeroTrainer {
             if (bestPolicyPath == null || bestPolicyPath.trim().isEmpty()) {
                 bestPolicyPath = derivedBestPath(policyPath);
             }
+            if (actionPolicyPath != null && !actionPolicyPath.trim().isEmpty()) {
+                if (bestActionPolicyPath == null || bestActionPolicyPath.trim().isEmpty()) {
+                    bestActionPolicyPath = derivedBestPath(actionPolicyPath);
+                }
+                if (actionPolicyDataPath == null || actionPolicyDataPath.trim().isEmpty()) {
+                    actionPolicyDataPath = derivedActionDataPath(policyDataPath);
+                }
+                if (referenceActionPolicyPath == null || referenceActionPolicyPath.trim().isEmpty()) {
+                    referenceActionPolicyPath = actionPolicyPath;
+                }
+            }
             minPlayers = Math.max(2, Math.min(Types.TRIBE.values().length, minPlayers));
             maxPlayers = Math.max(minPlayers, Math.min(Types.TRIBE.values().length, maxPlayers));
         }
@@ -957,6 +1019,12 @@ public class AlphaZeroTrainer {
                 return path.substring(0, dot) + "-best" + path.substring(dot);
             }
             return path + "-best";
+        }
+
+        private static String derivedActionDataPath(String path) {
+            int slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            String dir = slash >= 0 ? path.substring(0, slash + 1) : "";
+            return dir + "alphazero-action-policy-data.tsv";
         }
 
         synchronized long nextLevelSeed(long deterministicSeed) {

@@ -21,4 +21,8 @@ public final class ModelFactory {
         }
         return LinearPolicyFunction.load(path);
     }
+
+    public static ActionPolicyModel loadActionPolicy(String path) {
+        return LinearActionPolicyFunction.load(path);
+    }
 }

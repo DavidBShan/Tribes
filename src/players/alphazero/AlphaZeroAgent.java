@@ -21,6 +21,7 @@ public class AlphaZeroAgent extends Agent {
     private final SimpleAgent advisor;
     private ValueModel valueFunction;
     private PolicyModel policyFunction;
+    private ActionPolicyModel actionPolicyFunction;
     private StateHeuristic heuristic;
     private GameState rootState;
     private Action advisorAction;
@@ -29,6 +30,7 @@ public class AlphaZeroAgent extends Agent {
     private int lastActiveTribe = -1;
     private int actionsThisTurn = 0;
     private double[] lastVisitPolicy;
+    private ArrayList<ActionPolicyTrainingExample> lastActionPolicy;
 
     public AlphaZeroAgent(long seed) {
         this(seed, new AZParams());
@@ -41,6 +43,7 @@ public class AlphaZeroAgent extends Agent {
         this.advisor = new SimpleAgent(seed + 17);
         this.valueFunction = ModelFactory.loadValue(params.networkType, params.modelPath);
         this.policyFunction = ModelFactory.loadPolicy(params.networkType, params.policyPath);
+        this.actionPolicyFunction = ModelFactory.loadActionPolicy(params.actionPolicyPath);
     }
 
     @Override
@@ -52,6 +55,7 @@ public class AlphaZeroAgent extends Agent {
     @Override
     public Action act(GameState gs, ElapsedCpuTimer ect) {
         lastVisitPolicy = null;
+        lastActionPolicy = null;
         ArrayList<Action> allActions = gs.getAllAvailableActions();
         if (allActions.size() == 1) {
             return allActions.get(0);
@@ -60,6 +64,7 @@ public class AlphaZeroAgent extends Agent {
         updateTurnCounter(gs);
         this.valueFunction = ModelFactory.loadValue(params.networkType, params.modelPath);
         this.policyFunction = ModelFactory.loadPolicy(params.networkType, params.policyPath);
+        this.actionPolicyFunction = ModelFactory.loadActionPolicy(params.actionPolicyPath);
         this.heuristic = params.getStateHeuristic(playerID, allPlayerIDs);
         this.rootState = gs;
         this.advisorAction = (params.advisorOverride || params.staticPriors) ? safeAdvisorAction(gs, ect) : null;
@@ -113,6 +118,7 @@ public class AlphaZeroAgent extends Agent {
         }
 
         lastVisitPolicy = root.visitPolicyByActionType();
+        lastActionPolicy = root.visitPolicyByAction(rootState, playerID, allPlayerIDs);
         Node selected = root.bestChildByVisits();
         boolean sampledSelection = false;
         if (shouldSampleFromVisits(gs)) {
@@ -149,6 +155,13 @@ public class AlphaZeroAgent extends Agent {
             return null;
         }
         return lastVisitPolicy.clone();
+    }
+
+    public ArrayList<ActionPolicyTrainingExample> lastActionPolicyExamples() {
+        if (lastActionPolicy == null) {
+            return null;
+        }
+        return new ArrayList<>(lastActionPolicy);
     }
 
     private Action safeAdvisorAction(GameState gs, ElapsedCpuTimer ect) {
@@ -344,7 +357,13 @@ public class AlphaZeroAgent extends Agent {
             double p = policyFunction.probability(state, actor, allPlayerIDs, action.getActionType());
             policyLogit = params.policyLogitWeight * Math.log(Math.max(1e-6, p));
         }
-        return orientation * value + orientation * staticPrior * 0.10 + policyLogit;
+        double actionPolicyLogit = 0.0;
+        if (actionPolicyFunction.isTrained() && params.actionPolicyLogitWeight != 0.0) {
+            int actor = state.getActiveTribeID();
+            actionPolicyLogit = params.actionPolicyLogitWeight
+                    * actionPolicyFunction.logit(state, nextState, actor, allPlayerIDs, action);
+        }
+        return orientation * value + orientation * staticPrior * 0.10 + policyLogit + actionPolicyLogit;
     }
 
     private double staticActionScore(Action action) {
@@ -629,6 +648,30 @@ public class AlphaZeroAgent extends Agent {
                 policy[i] /= total;
             }
             return policy;
+        }
+
+        ArrayList<ActionPolicyTrainingExample> visitPolicyByAction(GameState parentState,
+                                                                    int actor,
+                                                                    ArrayList<Integer> ids) {
+            ArrayList<ActionPolicyTrainingExample> examples = new ArrayList<>();
+            double total = 0.0;
+            for (Node child : children) {
+                if (child.actionFromParent != null && child.visits > 0) {
+                    total += child.visits;
+                }
+            }
+            if (total <= 0.0) {
+                return examples;
+            }
+            for (Node child : children) {
+                if (child.actionFromParent == null) {
+                    continue;
+                }
+                double target = child.visits <= 0 ? 0.0 : child.visits / total;
+                examples.add(new ActionPolicyTrainingExample(target,
+                        ActionFeatures.extract(parentState, child.state, actor, ids, child.actionFromParent)));
+            }
+            return examples;
         }
 
         Node findChild(Action action) {
