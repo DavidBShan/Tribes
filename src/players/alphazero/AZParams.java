@@ -13,6 +13,8 @@ public class AZParams extends AlgParams {
     public double priorTemperature = 0.75;
     public double heuristicScale = 45.0;
     public double heuristicBlend = 0.35;
+    public double disagreementHeuristicBlend = -1.0;
+    public double disagreementHeuristicThreshold = 0.35;
     public double advisorOverrideMargin = 0.08;
     public double greedyPriorityThreshold = 99.0;
     public double policyLogitWeight = 0.06;

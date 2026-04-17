@@ -316,8 +316,13 @@ public class AlphaZeroAgent extends Agent {
         }
 
         double learnedValue = valueFunction.predict(leafState, playerID, allPlayerIDs);
-        return StateFeatures.clamp((1.0 - params.heuristicBlend) * learnedValue
-                + params.heuristicBlend * heuristicValue);
+        double blend = params.heuristicBlend;
+        if (params.disagreementHeuristicBlend > blend
+                && learnedValue * heuristicValue < 0.0
+                && Math.abs(heuristicValue) >= params.disagreementHeuristicThreshold) {
+            blend = params.disagreementHeuristicBlend;
+        }
+        return StateFeatures.clamp((1.0 - blend) * learnedValue + blend * heuristicValue);
     }
 
     private double actionPriorLogit(GameState state, Action action, GameState nextState, int depth) {

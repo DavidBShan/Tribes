@@ -264,6 +264,8 @@ public class AlphaZeroTrainer {
         obj.put("terminal_position_blend", opts.terminalPositionBlend);
         obj.put("search_position_blend", opts.positionBlend);
         obj.put("advisor_override_margin", opts.advisorOverrideMargin);
+        obj.put("disagreement_heuristic_blend", opts.disagreementHeuristicBlend);
+        obj.put("disagreement_heuristic_threshold", opts.disagreementHeuristicThreshold);
         obj.put("reference_refresh_interval", opts.referenceRefreshInterval);
 
         JSONArray bots = new JSONArray();
@@ -378,6 +380,8 @@ public class AlphaZeroTrainer {
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
+        params.disagreementHeuristicBlend = opts.disagreementHeuristicBlend;
+        params.disagreementHeuristicThreshold = opts.disagreementHeuristicThreshold;
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
@@ -396,6 +400,8 @@ public class AlphaZeroTrainer {
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
         params.heuristicBlend = opts.heuristicBlend;
+        params.disagreementHeuristicBlend = opts.disagreementHeuristicBlend;
+        params.disagreementHeuristicThreshold = opts.disagreementHeuristicThreshold;
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.rootNoiseFraction = 0.0;
@@ -586,6 +592,8 @@ public class AlphaZeroTrainer {
         double sampleProbability = 0.35;
         double trajectorySampleProbability = 1.0;
         double heuristicBlend = 0.35;
+        double disagreementHeuristicBlend = -1.0;
+        double disagreementHeuristicThreshold = 0.35;
         double positionBlend = 0.20;
         double advisorOverrideMargin = 0.08;
         double valuePositionBlend = 0.0;
@@ -651,6 +659,8 @@ public class AlphaZeroTrainer {
                 else if ("sample".equals(key)) opts.sampleProbability = Double.parseDouble(value);
                 else if ("trajectory-sample".equals(key)) opts.trajectorySampleProbability = Double.parseDouble(value);
                 else if ("heuristic-blend".equals(key)) opts.heuristicBlend = Double.parseDouble(value);
+                else if ("disagreement-heuristic-blend".equals(key)) opts.disagreementHeuristicBlend = Double.parseDouble(value);
+                else if ("disagreement-threshold".equals(key)) opts.disagreementHeuristicThreshold = Double.parseDouble(value);
                 else if ("position-blend".equals(key)) opts.positionBlend = Double.parseDouble(value);
                 else if ("advisor-margin".equals(key)) opts.advisorOverrideMargin = Double.parseDouble(value);
                 else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
