@@ -23,6 +23,7 @@ public class AZParams extends AlgParams {
     public double opponentAdversaryWeight = 1.0;
     public double rootNoiseFraction = 0.0;
     public double rootDirichletAlpha = 0.30;
+    public double rootGumbelScale = 0.0;
     public double visitSamplingTemperature = 0.0;
     public int visitSamplingUntilTick = 0;
     public int forceTurnAfterActions = 10;

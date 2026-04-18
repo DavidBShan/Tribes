@@ -56,7 +56,8 @@ public class AlphaZeroTrainer {
         }
         System.out.println("cpuct=" + opts.cpuct + " priorTemperature=" + opts.priorTemperature);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
-                + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
+                + " rootDirichletAlpha=" + opts.rootDirichletAlpha
+                + " rootGumbelScale=" + opts.rootGumbelScale);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
                 + " untilTick=" + opts.visitSamplingUntilTick);
         System.out.println("randomLevelSeeds=" + opts.randomLevelSeeds
@@ -682,6 +683,7 @@ public class AlphaZeroTrainer {
         params.prefilterByStaticScore = opts.prefilterByStaticScore;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
+        params.rootGumbelScale = training ? opts.rootGumbelScale : 0.0;
         params.visitSamplingTemperature = training ? opts.visitSamplingTemperature : 0.0;
         params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
@@ -731,6 +733,7 @@ public class AlphaZeroTrainer {
         params.prefilterByStaticScore = opts.prefilterByStaticScore;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
+        params.rootGumbelScale = 0.0;
         params.visitSamplingTemperature = 0.0;
         params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
@@ -1049,6 +1052,7 @@ public class AlphaZeroTrainer {
         double priorTemperature = 0.75;
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
+        double rootGumbelScale = 0.0;
         double visitSamplingTemperature = 0.0;
         int visitSamplingUntilTick = 0;
         long seed = 20260416L;
@@ -1148,6 +1152,7 @@ public class AlphaZeroTrainer {
                 else if ("survival-value-blend".equals(key)) opts.survivalValueBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
+                else if ("root-gumbel-scale".equals(key)) opts.rootGumbelScale = Double.parseDouble(value);
                 else if ("visit-sampling-temp".equals(key)) opts.visitSamplingTemperature = Double.parseDouble(value);
                 else if ("visit-sampling-until".equals(key)) opts.visitSamplingUntilTick = Integer.parseInt(value);
                 else if ("seed".equals(key)) opts.seed = Long.parseLong(value);

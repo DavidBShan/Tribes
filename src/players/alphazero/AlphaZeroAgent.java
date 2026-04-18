@@ -463,6 +463,11 @@ public class AlphaZeroAgent extends Agent {
         }
     }
 
+    private double sampleGumbel() {
+        double u = Math.max(1e-12, Math.min(1.0 - 1e-12, rnd.nextDouble()));
+        return -Math.log(-Math.log(u));
+    }
+
     @Override
     public Agent copy() {
         return new AlphaZeroAgent(seed, params);
@@ -517,6 +522,9 @@ public class AlphaZeroAgent extends Agent {
                 }
                 fmCalls++;
                 double logit = actionPriorLogit(state, action, next, depth);
+                if (depth == 0 && params.rootGumbelScale > 0.0) {
+                    logit += params.rootGumbelScale * sampleGumbel();
+                }
                 specs.add(new ChildSpec(action, next, logit));
             }
 
