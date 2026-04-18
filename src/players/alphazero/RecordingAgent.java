@@ -99,8 +99,10 @@ public class RecordingAgent extends Agent {
             ArrayList<PolicyTrainingExample> policyExamples = new ArrayList<>();
             policyExamples.add(policyExample(action, features));
             PolicyDataset.append(policyDatasetPath, policyExamples);
-            ArrayList<ActionPolicyTrainingExample> actionPolicyExamples =
-                    ((AlphaZeroAgent) delegate).lastActionPolicyExamples();
+            AlphaZeroAgent alphaZero = (AlphaZeroAgent) delegate;
+            ArrayList<ActionPolicyTrainingExample> actionPolicyExamples = useImprovedPolicyTargets()
+                    ? alphaZero.lastImprovedActionPolicyExamples()
+                    : alphaZero.lastActionPolicyExamples();
             ActionPolicyDataset.append(actionPolicyDatasetPath, actionPolicyExamples);
         }
         if (shouldRecordTrajectory() && action != null) {
@@ -112,13 +114,28 @@ public class RecordingAgent extends Agent {
     }
 
     private PolicyTrainingExample policyExample(Action action, double[] features) {
-        if ("visit".equalsIgnoreCase(policyTargetMode) && delegate instanceof AlphaZeroAgent) {
-            double[] targets = ((AlphaZeroAgent) delegate).lastVisitPolicyTargets();
-            if (targets != null) {
-                return new PolicyTrainingExample(targets, features);
+        if (delegate instanceof AlphaZeroAgent) {
+            AlphaZeroAgent alphaZero = (AlphaZeroAgent) delegate;
+            if (useImprovedPolicyTargets()) {
+                double[] targets = alphaZero.lastImprovedPolicyTargets();
+                if (targets != null) {
+                    return new PolicyTrainingExample(targets, features);
+                }
+            }
+            if ("visit".equalsIgnoreCase(policyTargetMode)) {
+                double[] targets = alphaZero.lastVisitPolicyTargets();
+                if (targets != null) {
+                    return new PolicyTrainingExample(targets, features);
+                }
             }
         }
         return new PolicyTrainingExample(action.getActionType().ordinal(), features);
+    }
+
+    private boolean useImprovedPolicyTargets() {
+        return "improved".equalsIgnoreCase(policyTargetMode)
+                || "value".equalsIgnoreCase(policyTargetMode)
+                || "gumbel".equalsIgnoreCase(policyTargetMode);
     }
 
     private boolean shouldRecordPolicyExample() {
