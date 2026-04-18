@@ -56,6 +56,12 @@ public class AlphaZeroTrainer {
                     + " leagueSnapshotInterval=" + opts.leagueSnapshotInterval);
         }
         System.out.println("cpuct=" + opts.cpuct + " priorTemperature=" + opts.priorTemperature);
+        if (opts.progressiveSearchCalls) {
+            System.out.println("progressiveSearchCalls=true"
+                    + " start=" + opts.progressiveSearchStartCalls
+                    + " end=" + opts.progressiveSearchEndCalls
+                    + " steps=" + opts.progressiveSearchSteps);
+        }
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha
                 + " rootGumbelScale=" + opts.rootGumbelScale);
@@ -120,6 +126,10 @@ public class AlphaZeroTrainer {
 
             for (int iteration = 1; iteration <= opts.iterations; iteration++) {
                 System.out.println("=== iteration " + iteration + " ===");
+                System.out.printf("iteration search calls: train=%d eval=%d reference=%d progressive=%s%n",
+                        opts.trainingSearchCallsForIteration(iteration), opts.searchFmCalls,
+                        opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls,
+                        opts.progressiveSearchCalls);
                 runTrainingGames(opts, iteration,
                         opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget), trajectoryWriter);
 
@@ -381,35 +391,40 @@ public class AlphaZeroTrainer {
     private static void runTrainingGames(Options opts, int iteration, boolean selfPlayOnly,
                                          SftTrajectoryWriter trajectoryWriter) {
         int nGames = selfPlayOnly && !opts.selfPlayOnly ? opts.selfPlayGamesAfterTarget : opts.gamesPerIteration;
-        for (int gameIdx = 0; gameIdx < nGames; gameIdx++) {
-            long seed = opts.seed + iteration * 10000L + gameIdx * 31L;
-            long levelSeed = opts.nextLevelSeed(seed);
-            long gameSeed = seed + 17;
-            String opponent;
-            if (selfPlayOnly) {
-                opponent = "AZ";
-            } else {
-                opponent = opts.trainingOpponent(gameIdx);
-            }
+        opts.activeTrainingSearchFmCalls = opts.trainingSearchCallsForIteration(iteration);
+        try {
+            for (int gameIdx = 0; gameIdx < nGames; gameIdx++) {
+                long seed = opts.seed + iteration * 10000L + gameIdx * 31L;
+                long levelSeed = opts.nextLevelSeed(seed);
+                long gameSeed = seed + 17;
+                String opponent;
+                if (selfPlayOnly) {
+                    opponent = "AZ";
+                } else {
+                    opponent = opts.trainingOpponent(gameIdx);
+                }
 
-            int episode = trainingEpisode(opts, iteration, gameIdx);
-            int forcedPlayerCount = opts.stratifiedTrainingPlayerCounts
-                    ? opts.trainingPlayerCountForIndex(gameIdx) : 0;
-            GameSetup gameSetup = trainingSetup(opts, seed, opponent, selfPlayOnly, forcedPlayerCount);
-            JSONObject setup = setupMetadata(opts, iteration, gameIdx, episode, levelSeed, gameSeed,
-                    gameSetup, "train");
-            ArrayList<Agent> players = new ArrayList<>();
-            for (int seat = 0; seat < gameSetup.bots.length; seat++) {
-                String bot = gameSetup.bots[seat];
-                players.add(recording(bot, newAgent(bot, seed + 2 + seat * 17L, opts, true),
-                        opts, trajectoryWriter, setup, episode, seat, seed + 3 + seat * 19L));
+                int episode = trainingEpisode(opts, iteration, gameIdx);
+                int forcedPlayerCount = opts.stratifiedTrainingPlayerCounts
+                        ? opts.trainingPlayerCountForIndex(gameIdx) : 0;
+                GameSetup gameSetup = trainingSetup(opts, seed, opponent, selfPlayOnly, forcedPlayerCount);
+                JSONObject setup = setupMetadata(opts, iteration, gameIdx, episode, levelSeed, gameSeed,
+                        gameSetup, "train");
+                ArrayList<Agent> players = new ArrayList<>();
+                for (int seat = 0; seat < gameSetup.bots.length; seat++) {
+                    String bot = gameSetup.bots[seat];
+                    players.add(recording(bot, newAgent(bot, seed + 2 + seat * 17L, opts, true),
+                            opts, trajectoryWriter, setup, episode, seat, seed + 3 + seat * 19L));
+                }
+                runOneGame(players, gameSetup.tribes, levelSeed, gameSeed, opts, "train",
+                        episode, gameIdx, gameSetup.opponentLabel(), setup);
+                System.out.println("data game " + (gameIdx + 1) + "/" + nGames
+                        + " vs " + gameSetup.opponentLabel()
+                        + " players=" + gameSetup.bots.length
+                        + " tribes=" + gameSetup.tribeLabel());
             }
-            runOneGame(players, gameSetup.tribes, levelSeed, gameSeed, opts, "train",
-                    episode, gameIdx, gameSetup.opponentLabel(), setup);
-            System.out.println("data game " + (gameIdx + 1) + "/" + nGames
-                    + " vs " + gameSetup.opponentLabel()
-                    + " players=" + gameSetup.bots.length
-                    + " tribes=" + gameSetup.tribeLabel());
+        } finally {
+            opts.activeTrainingSearchFmCalls = -1;
         }
     }
 
@@ -441,7 +456,14 @@ public class AlphaZeroTrainer {
         obj.put("stratified_eval_player_counts", opts.stratifiedEvalPlayerCounts);
         obj.put("value_model", opts.modelPath);
         obj.put("policy_model", opts.policyPath);
-        obj.put("search_calls", opts.searchFmCalls);
+        obj.put("search_calls", opts.activeAzSearchCalls());
+        obj.put("configured_search_calls", opts.searchFmCalls);
+        obj.put("progressive_search_calls", opts.progressiveSearchCalls);
+        if (opts.progressiveSearchCalls) {
+            obj.put("progressive_search_start_calls", opts.progressiveSearchStartCalls);
+            obj.put("progressive_search_end_calls", opts.progressiveSearchEndCalls);
+            obj.put("progressive_search_steps", opts.progressiveSearchSteps);
+        }
         obj.put("opponent_calls", opts.opponentFmCalls);
         obj.put("search_depth", opts.searchDepth);
         obj.put("opponent", setup.opponentLabel());
@@ -698,7 +720,7 @@ public class AlphaZeroTrainer {
         params.policyPath = opts.policyPath;
         params.actionPolicyPath = opts.actionPolicyPath;
         params.networkType = opts.networkType;
-        params.num_fmcalls = opts.searchFmCalls;
+        params.num_fmcalls = training ? opts.activeAzSearchCalls() : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
         params.priorTemperature = opts.priorTemperature;
@@ -1135,6 +1157,10 @@ public class AlphaZeroTrainer {
         int maxTurns = 50;
         int searchFmCalls = 900;
         int opponentFmCalls = 1200;
+        int progressiveSearchStartCalls = 0;
+        int progressiveSearchEndCalls = 0;
+        int progressiveSearchSteps = 4;
+        int activeTrainingSearchFmCalls = -1;
         int searchDepth = 18;
         int maxActionsPerNode = 32;
         int prefilterActions = 80;
@@ -1186,6 +1212,7 @@ public class AlphaZeroTrainer {
         boolean stratifiedTrainingPlayerCounts = false;
         boolean stratifiedEvalPlayerCounts = false;
         boolean stratifiedEvalPlayerCountsConfigured = false;
+        boolean progressiveSearchCalls = false;
         String trainingOpponentMode = "mixed";
         boolean recordTrajectories = true;
         boolean evalReference = false;
@@ -1243,6 +1270,10 @@ public class AlphaZeroTrainer {
                 else if ("max-turns".equals(key)) opts.maxTurns = Integer.parseInt(value);
                 else if ("search-calls".equals(key)) opts.searchFmCalls = Integer.parseInt(value);
                 else if ("opponent-calls".equals(key)) opts.opponentFmCalls = Integer.parseInt(value);
+                else if ("progressive-search-calls".equals(key)) opts.progressiveSearchCalls = Boolean.parseBoolean(value);
+                else if ("progressive-search-start".equals(key)) opts.progressiveSearchStartCalls = Integer.parseInt(value);
+                else if ("progressive-search-end".equals(key)) opts.progressiveSearchEndCalls = Integer.parseInt(value);
+                else if ("progressive-search-steps".equals(key)) opts.progressiveSearchSteps = Integer.parseInt(value);
                 else if ("depth".equals(key)) opts.searchDepth = Integer.parseInt(value);
                 else if ("max-actions".equals(key)) opts.maxActionsPerNode = Integer.parseInt(value);
                 else if ("prefilter".equals(key)) opts.prefilterActions = Integer.parseInt(value);
@@ -1365,6 +1396,16 @@ public class AlphaZeroTrainer {
             if (stratifiedTrainingPlayerCounts) {
                 gamesPerIteration = Math.max(gamesPerIteration, maxPlayers - minPlayers + 1);
             }
+            searchFmCalls = Math.max(1, searchFmCalls);
+            if (progressiveSearchStartCalls <= 0) {
+                progressiveSearchStartCalls = searchFmCalls;
+            }
+            if (progressiveSearchEndCalls <= 0) {
+                progressiveSearchEndCalls = searchFmCalls;
+            }
+            progressiveSearchStartCalls = Math.max(1, progressiveSearchStartCalls);
+            progressiveSearchEndCalls = Math.max(1, progressiveSearchEndCalls);
+            progressiveSearchSteps = Math.max(1, progressiveSearchSteps);
             trainingOpponentMode = trainingOpponentMode == null ? "mixed" : trainingOpponentMode.trim();
             if (trainingOpponentMode.isEmpty()) {
                 trainingOpponentMode = "mixed";
@@ -1462,6 +1503,24 @@ public class AlphaZeroTrainer {
             }
             int width = Math.max(1, maxPlayers - minPlayers + 1);
             return minPlayers + Math.floorMod(evalIndex, width);
+        }
+
+        int trainingSearchCallsForIteration(int iteration) {
+            if (!progressiveSearchCalls) {
+                return searchFmCalls;
+            }
+            if (progressiveSearchSteps <= 1) {
+                return progressiveSearchEndCalls;
+            }
+            int boundedIteration = Math.max(1, Math.min(iteration, progressiveSearchSteps));
+            double t = (boundedIteration - 1) / (double) (progressiveSearchSteps - 1);
+            return Math.max(1, (int) Math.round(
+                    progressiveSearchStartCalls
+                            + t * (progressiveSearchEndCalls - progressiveSearchStartCalls)));
+        }
+
+        int activeAzSearchCalls() {
+            return activeTrainingSearchFmCalls > 0 ? activeTrainingSearchFmCalls : searchFmCalls;
         }
 
         boolean useMixedTrainingOpponentMode() {
