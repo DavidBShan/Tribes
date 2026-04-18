@@ -21,6 +21,7 @@ public class AZParams extends AlgParams {
     public double actionPolicyLogitWeight = 0.0;
     public double positionBlend = 0.20;
     public double opponentAdversaryWeight = 1.0;
+    public double opponentSelfishWeight = 0.0;
     public double rootNoiseFraction = 0.0;
     public double rootDirichletAlpha = 0.30;
     public double rootGumbelScale = 0.0;

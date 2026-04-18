@@ -84,7 +84,8 @@ public class AlphaZeroTrainer {
                 + " survivalValueBlend=" + opts.survivalValueBlend
                 + " searchPositionBlend=" + opts.positionBlend
                 + " advisorMargin=" + opts.advisorOverrideMargin
-                + " opponentAdversaryWeight=" + opts.opponentAdversaryWeight);
+                + " opponentAdversaryWeight=" + opts.opponentAdversaryWeight
+                + " opponentSelfishWeight=" + opts.opponentSelfishWeight);
         System.out.println("pureAz=" + opts.pureAz
                 + " tacticalShortcuts=" + opts.tacticalShortcuts
                 + " advisorOverride=" + opts.advisorOverride
@@ -487,6 +488,7 @@ public class AlphaZeroTrainer {
         obj.put("search_position_blend", opts.positionBlend);
         obj.put("advisor_override_margin", opts.advisorOverrideMargin);
         obj.put("opponent_adversary_weight", opts.opponentAdversaryWeight);
+        obj.put("opponent_selfish_weight", opts.opponentSelfishWeight);
         obj.put("disagreement_heuristic_blend", opts.disagreementHeuristicBlend);
         obj.put("disagreement_heuristic_threshold", opts.disagreementHeuristicThreshold);
         obj.put("reference_refresh_interval", opts.referenceRefreshInterval);
@@ -732,6 +734,7 @@ public class AlphaZeroTrainer {
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.opponentAdversaryWeight = opts.opponentAdversaryWeight;
+        params.opponentSelfishWeight = opts.opponentSelfishWeight;
         params.policyLogitWeight = opts.policyLogitWeight;
         params.actionPolicyLogitWeight = opts.actionPolicyLogitWeight;
         params.tacticalShortcuts = opts.tacticalShortcuts;
@@ -785,6 +788,7 @@ public class AlphaZeroTrainer {
         params.positionBlend = opts.positionBlend;
         params.advisorOverrideMargin = opts.advisorOverrideMargin;
         params.opponentAdversaryWeight = opts.opponentAdversaryWeight;
+        params.opponentSelfishWeight = opts.opponentSelfishWeight;
         params.policyLogitWeight = opts.policyLogitWeight;
         params.actionPolicyLogitWeight = opts.actionPolicyLogitWeight;
         params.tacticalShortcuts = opts.tacticalShortcuts;
@@ -1183,6 +1187,7 @@ public class AlphaZeroTrainer {
         double positionBlend = 0.20;
         double advisorOverrideMargin = 0.08;
         double opponentAdversaryWeight = 1.0;
+        double opponentSelfishWeight = 0.0;
         double policyLogitWeight = 0.06;
         double actionPolicyLogitWeight = 0.0;
         double valuePositionBlend = 0.0;
@@ -1298,6 +1303,7 @@ public class AlphaZeroTrainer {
                 else if ("position-blend".equals(key)) opts.positionBlend = Double.parseDouble(value);
                 else if ("advisor-margin".equals(key)) opts.advisorOverrideMargin = Double.parseDouble(value);
                 else if ("opponent-adversary-weight".equals(key)) opts.opponentAdversaryWeight = Double.parseDouble(value);
+                else if ("opponent-selfish-weight".equals(key)) opts.opponentSelfishWeight = Double.parseDouble(value);
                 else if ("policy-logit-weight".equals(key)) opts.policyLogitWeight = Double.parseDouble(value);
                 else if ("action-policy-logit-weight".equals(key)) opts.actionPolicyLogitWeight = Double.parseDouble(value);
                 else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
@@ -1418,6 +1424,7 @@ public class AlphaZeroTrainer {
             }
             rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
             survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
+            opponentSelfishWeight = Math.max(0.0, Math.min(1.0, opponentSelfishWeight));
             leagueMaxSnapshots = Math.max(0, leagueMaxSnapshots);
             leagueSnapshotInterval = Math.max(0, leagueSnapshotInterval);
         }

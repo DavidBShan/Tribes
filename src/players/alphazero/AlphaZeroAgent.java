@@ -343,22 +343,33 @@ public class AlphaZeroAgent extends Agent {
     }
 
     private double evaluateLeaf(GameState leafState) {
+        return evaluateLeaf(leafState, playerID, heuristic);
+    }
+
+    private double evaluateLeafForPlayer(GameState leafState, int perspectivePlayer) {
+        StateHeuristic perspectiveHeuristic = perspectivePlayer == playerID
+                ? heuristic : params.getStateHeuristic(perspectivePlayer, allPlayerIDs);
+        return evaluateLeaf(leafState, perspectivePlayer, perspectiveHeuristic);
+    }
+
+    private double evaluateLeaf(GameState leafState, int perspectivePlayer, StateHeuristic perspectiveHeuristic) {
         if (leafState.isGameOver()) {
-            return StateFeatures.outcomeLabel(leafState, playerID, allPlayerIDs);
+            return StateFeatures.outcomeLabel(leafState, perspectivePlayer, allPlayerIDs);
         }
 
         double heuristicValue = 0.0;
-        if (heuristic != null && rootState != null) {
-            heuristicValue = Math.tanh(heuristic.evaluateState(rootState, leafState) / params.heuristicScale);
+        if (perspectiveHeuristic != null && rootState != null) {
+            heuristicValue = Math.tanh(perspectiveHeuristic.evaluateState(rootState, leafState)
+                    / params.heuristicScale);
         }
-        double positionValue = StateFeatures.positionValue(leafState, playerID, allPlayerIDs);
+        double positionValue = StateFeatures.positionValue(leafState, perspectivePlayer, allPlayerIDs);
         heuristicValue = (1.0 - params.positionBlend) * heuristicValue + params.positionBlend * positionValue;
 
         if (!valueFunction.isTrained()) {
             return params.learnedValueOnly ? 0.0 : heuristicValue;
         }
 
-        double learnedValue = valueFunction.predict(leafState, playerID, allPlayerIDs);
+        double learnedValue = valueFunction.predict(leafState, perspectivePlayer, allPlayerIDs);
         if (params.learnedValueOnly) {
             return learnedValue;
         }
@@ -373,23 +384,30 @@ public class AlphaZeroAgent extends Agent {
 
     private double actionPriorLogit(GameState state, Action action, GameState nextState, int depth) {
         boolean actorIsMe = state.getActiveTribeID() == playerID;
+        int actor = state.getActiveTribeID();
         double orientation = actorIsMe ? 1.0 : -1.0;
         double value = params.nextStateValuePrior ? evaluateLeaf(nextState) : 0.0;
         double advisorBoost = params.staticPriors && depth == 0 && advisorAction != null && advisorAction.equals(action) ? 5.0 : 0.0;
         double staticPrior = params.staticPriors ? staticActionScore(action) + advisorBoost : 0.0;
+        double targetOrientedLogit = orientation * value + orientation * staticPrior * 0.10;
+        if (!actorIsMe && params.opponentSelfishWeight > 0.0) {
+            double selfishWeight = Math.max(0.0, Math.min(1.0, params.opponentSelfishWeight));
+            double actorValue = params.nextStateValuePrior ? evaluateLeafForPlayer(nextState, actor) : 0.0;
+            double actorOrientedLogit = actorValue + staticPrior * 0.10;
+            targetOrientedLogit = (1.0 - selfishWeight) * targetOrientedLogit
+                    + selfishWeight * actorOrientedLogit;
+        }
         double policyLogit = 0.0;
         if (policyFunction.isTrained()) {
-            int actor = state.getActiveTribeID();
             double p = policyFunction.probability(state, actor, allPlayerIDs, action.getActionType());
             policyLogit = params.policyLogitWeight * Math.log(Math.max(1e-6, p));
         }
         double actionPolicyLogit = 0.0;
         if (actionPolicyFunction.isTrained() && params.actionPolicyLogitWeight != 0.0) {
-            int actor = state.getActiveTribeID();
             actionPolicyLogit = params.actionPolicyLogitWeight
                     * actionPolicyFunction.logit(state, nextState, actor, allPlayerIDs, action);
         }
-        return orientation * value + orientation * staticPrior * 0.10 + policyLogit + actionPolicyLogit;
+        return targetOrientedLogit + policyLogit + actionPolicyLogit;
     }
 
     private double staticActionScore(Action action) {
@@ -509,6 +527,8 @@ public class AlphaZeroAgent extends Agent {
         private boolean expanded;
         private int visits;
         private double valueSum;
+        private int cachedPerspectivePlayer;
+        private double cachedPerspectiveValue;
 
         Node(Node parent, GameState state, Action actionFromParent, double prior,
              double priorLogit, double selectionLogit, int depth) {
@@ -523,6 +543,8 @@ public class AlphaZeroAgent extends Agent {
             this.expanded = false;
             this.visits = 0;
             this.valueSum = 0.0;
+            this.cachedPerspectivePlayer = Integer.MIN_VALUE;
+            this.cachedPerspectiveValue = 0.0;
         }
 
         void expand(ArrayList<Action> providedActions) {
@@ -611,6 +633,10 @@ public class AlphaZeroAgent extends Agent {
                 double u = params.cpuct * child.prior * sqrtVisits / (1.0 + child.visits);
                 double adversaryWeight = Math.max(0.0, params.opponentAdversaryWeight);
                 double valueTerm = actorIsMe ? q : -adversaryWeight * q;
+                if (!actorIsMe && params.opponentSelfishWeight > 0.0) {
+                    double selfishWeight = Math.max(0.0, Math.min(1.0, params.opponentSelfishWeight));
+                    valueTerm += selfishWeight * child.perspectiveValue(state.getActiveTribeID());
+                }
                 double score = valueTerm + u;
                 score = noise(score);
                 if (score > best) {
@@ -842,6 +868,14 @@ public class AlphaZeroAgent extends Agent {
                 return -Double.MAX_VALUE;
             }
             return valueSum / visits;
+        }
+
+        double perspectiveValue(int perspectivePlayer) {
+            if (cachedPerspectivePlayer != perspectivePlayer) {
+                cachedPerspectivePlayer = perspectivePlayer;
+                cachedPerspectiveValue = evaluateLeafForPlayer(state, perspectivePlayer);
+            }
+            return cachedPerspectiveValue;
         }
     }
 
