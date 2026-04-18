@@ -68,7 +68,8 @@ public class AlphaZeroTrainer {
                 + " mapSnapshotDir=" + opts.mapSnapshotDir);
         System.out.println("randomTribes=" + opts.randomTribes
                 + " randomPlayerCount=" + opts.randomPlayerCount
-                + " playerRange=" + opts.minPlayers + "-" + opts.maxPlayers);
+                + " playerRange=" + opts.minPlayers + "-" + opts.maxPlayers
+                + " stratifiedEvalPlayerCounts=" + opts.stratifiedEvalPlayerCounts);
         System.out.println("valuePositionBlend=" + opts.valuePositionBlend
                 + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " rankValueBlend=" + opts.rankValueBlend
@@ -432,6 +433,7 @@ public class AlphaZeroTrainer {
                 MapSnapshotWriter.fileName(mapSplit, episode, gameIdx, levelSeed, gameSeed));
         obj.put("random_tribes", opts.randomTribes);
         obj.put("random_player_count", opts.randomPlayerCount);
+        obj.put("stratified_eval_player_counts", opts.stratifiedEvalPlayerCounts);
         obj.put("value_model", opts.modelPath);
         obj.put("policy_model", opts.policyPath);
         obj.put("search_calls", opts.searchFmCalls);
@@ -505,13 +507,18 @@ public class AlphaZeroTrainer {
     }
 
     private static GameSetup evalSetup(Options opts, String opponent, long seed) {
-        if (!opts.randomPlayerCount && !opts.randomTribes) {
+        return evalSetup(opts, opponent, seed, 0);
+    }
+
+    private static GameSetup evalSetup(Options opts, String opponent, long seed, int forcedPlayerCount) {
+        if (forcedPlayerCount <= 0 && !opts.randomPlayerCount && !opts.randomTribes) {
             return new GameSetup(new String[]{"AZ", opponent},
                     new Types.TRIBE[]{XIN_XI, IMPERIUS}, 0);
         }
 
         Random rnd = new Random(seed ^ 0xD1B54A32D192ED03L);
-        int playerCount = opts.randomPlayerCount ? opts.randomPlayerCount(rnd) : 2;
+        int playerCount = forcedPlayerCount > 0 ? forcedPlayerCount
+                : opts.randomPlayerCount ? opts.randomPlayerCount(rnd) : 2;
         Types.TRIBE[] tribes = opts.randomTribes ? randomTribes(playerCount, rnd)
                 : fixedTribes(playerCount);
         String[] bots = new String[playerCount];
@@ -556,9 +563,11 @@ public class AlphaZeroTrainer {
         MatchResult result = new MatchResult("AZ", opponent);
         for (int i = 0; i < evalGames; i++) {
             long seed = seedBase + i * 997L;
+            int forcedPlayerCount = opts.stratifiedEvalPlayerCounts
+                    ? opts.evalPlayerCountForIndex(i) : 0;
 
             long firstLevelSeed = opts.nextLevelSeed(seed);
-            GameSetup firstSetup = evalSetup(opts, opponent, seed + 13);
+            GameSetup firstSetup = evalSetup(opts, opponent, seed + 13, forcedPlayerCount);
             JSONObject firstMetadata = setupMetadata(opts, 0, i * 2, i,
                     firstLevelSeed, seed + 13, firstSetup, "eval-" + opponent + "-az-first");
             Game first = runOneGame(firstSetup.agents(seed + 1, opts), firstSetup.tribes,
@@ -568,8 +577,8 @@ public class AlphaZeroTrainer {
 
             long secondLevelSeed = opts.randomLevelSeeds ? opts.nextLevelSeed(seed + 1) : seed;
             GameSetup secondSetup;
-            if (opts.randomPlayerCount || opts.randomTribes) {
-                secondSetup = evalSetup(opts, opponent, seed + 29);
+            if (forcedPlayerCount > 0 || opts.randomPlayerCount || opts.randomTribes) {
+                secondSetup = evalSetup(opts, opponent, seed + 29, forcedPlayerCount);
             } else {
                 secondSetup = new GameSetup(new String[]{opponent, "AZ"},
                         new Types.TRIBE[]{XIN_XI, IMPERIUS}, 1);
@@ -1155,6 +1164,8 @@ public class AlphaZeroTrainer {
         boolean randomPlayerCount = false;
         int minPlayers = 2;
         int maxPlayers = 2;
+        boolean stratifiedEvalPlayerCounts = false;
+        boolean stratifiedEvalPlayerCountsConfigured = false;
         boolean recordTrajectories = true;
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
@@ -1258,6 +1269,10 @@ public class AlphaZeroTrainer {
                 else if ("random-player-count".equals(key)) opts.randomPlayerCount = Boolean.parseBoolean(value);
                 else if ("min-players".equals(key)) opts.minPlayers = Integer.parseInt(value);
                 else if ("max-players".equals(key)) opts.maxPlayers = Integer.parseInt(value);
+                else if ("stratified-eval-player-counts".equals(key)) {
+                    opts.stratifiedEvalPlayerCounts = Boolean.parseBoolean(value);
+                    opts.stratifiedEvalPlayerCountsConfigured = true;
+                }
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
@@ -1316,6 +1331,12 @@ public class AlphaZeroTrainer {
             }
             minPlayers = Math.max(2, Math.min(Types.TRIBE.values().length, minPlayers));
             maxPlayers = Math.max(minPlayers, Math.min(Types.TRIBE.values().length, maxPlayers));
+            if (!stratifiedEvalPlayerCountsConfigured && gatePlayerCountFloor && randomPlayerCount) {
+                stratifiedEvalPlayerCounts = true;
+            }
+            if (stratifiedEvalPlayerCounts) {
+                evalGames = Math.max(evalGames, maxPlayers - minPlayers + 1);
+            }
             rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
             survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
             leagueMaxSnapshots = Math.max(0, leagueMaxSnapshots);
@@ -1387,6 +1408,14 @@ public class AlphaZeroTrainer {
                 return minPlayers;
             }
             return minPlayers + rnd.nextInt(maxPlayers - minPlayers + 1);
+        }
+
+        int evalPlayerCountForIndex(int evalIndex) {
+            if (!stratifiedEvalPlayerCounts) {
+                return 0;
+            }
+            int width = Math.max(1, maxPlayers - minPlayers + 1);
+            return minPlayers + Math.floorMod(evalIndex, width);
         }
 
         private static ArrayList<String> csv(String value) {
