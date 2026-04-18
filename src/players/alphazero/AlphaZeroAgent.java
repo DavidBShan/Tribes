@@ -570,7 +570,9 @@ public class AlphaZeroAgent extends Agent {
             for (Node child : children) {
                 double q = child.visits == 0 ? 0.0 : child.valueSum / child.visits;
                 double u = params.cpuct * child.prior * sqrtVisits / (1.0 + child.visits);
-                double score = (actorIsMe ? q : -q) + u;
+                double adversaryWeight = Math.max(0.0, params.opponentAdversaryWeight);
+                double valueTerm = actorIsMe ? q : -adversaryWeight * q;
+                double score = valueTerm + u;
                 score = noise(score);
                 if (score > best) {
                     best = score;
