@@ -56,7 +56,11 @@ public class AlphaZeroTrainer {
         }
         System.out.println("cpuct=" + opts.cpuct + " priorTemperature=" + opts.priorTemperature);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
-                + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
+                + " rootDirichletAlpha=" + opts.rootDirichletAlpha
+                + " rootGumbelScale=" + opts.rootGumbelScale);
+        System.out.println("rootValueSelectionWeight=" + opts.rootValueSelectionWeight
+                + " improvedPolicyValueWeight=" + opts.improvedPolicyValueWeight
+                + " improvedPolicyTemperature=" + opts.improvedPolicyTemperature);
         System.out.println("trainingVisitSamplingTemp=" + opts.visitSamplingTemperature
                 + " untilTick=" + opts.visitSamplingUntilTick);
         System.out.println("randomLevelSeeds=" + opts.randomLevelSeeds
@@ -439,6 +443,10 @@ public class AlphaZeroTrainer {
         obj.put("policy_logit_weight", opts.policyLogitWeight);
         obj.put("root_noise_fraction", opts.rootNoiseFraction);
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
+        obj.put("root_gumbel_scale", opts.rootGumbelScale);
+        obj.put("root_value_selection_weight", opts.rootValueSelectionWeight);
+        obj.put("improved_policy_value_weight", opts.improvedPolicyValueWeight);
+        obj.put("improved_policy_temperature", opts.improvedPolicyTemperature);
         obj.put("visit_sampling_temperature", opts.visitSamplingTemperature);
         obj.put("visit_sampling_until_tick", opts.visitSamplingUntilTick);
         obj.put("value_position_blend", opts.valuePositionBlend);
@@ -682,6 +690,10 @@ public class AlphaZeroTrainer {
         params.prefilterByStaticScore = opts.prefilterByStaticScore;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
+        params.rootGumbelScale = training ? opts.rootGumbelScale : 0.0;
+        params.rootValueSelectionWeight = opts.rootValueSelectionWeight;
+        params.improvedPolicyValueWeight = opts.improvedPolicyValueWeight;
+        params.improvedPolicyTemperature = opts.improvedPolicyTemperature;
         params.visitSamplingTemperature = training ? opts.visitSamplingTemperature : 0.0;
         params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
@@ -731,6 +743,10 @@ public class AlphaZeroTrainer {
         params.prefilterByStaticScore = opts.prefilterByStaticScore;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
+        params.rootGumbelScale = 0.0;
+        params.rootValueSelectionWeight = opts.rootValueSelectionWeight;
+        params.improvedPolicyValueWeight = opts.improvedPolicyValueWeight;
+        params.improvedPolicyTemperature = opts.improvedPolicyTemperature;
         params.visitSamplingTemperature = 0.0;
         params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
@@ -1049,6 +1065,10 @@ public class AlphaZeroTrainer {
         double priorTemperature = 0.75;
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
+        double rootGumbelScale = 0.0;
+        double rootValueSelectionWeight = 0.0;
+        double improvedPolicyValueWeight = 1.0;
+        double improvedPolicyTemperature = 1.0;
         double visitSamplingTemperature = 0.0;
         int visitSamplingUntilTick = 0;
         long seed = 20260416L;
@@ -1148,6 +1168,10 @@ public class AlphaZeroTrainer {
                 else if ("survival-value-blend".equals(key)) opts.survivalValueBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
+                else if ("root-gumbel-scale".equals(key)) opts.rootGumbelScale = Double.parseDouble(value);
+                else if ("root-value-selection-weight".equals(key)) opts.rootValueSelectionWeight = Double.parseDouble(value);
+                else if ("improved-policy-value-weight".equals(key)) opts.improvedPolicyValueWeight = Double.parseDouble(value);
+                else if ("improved-policy-temp".equals(key)) opts.improvedPolicyTemperature = Double.parseDouble(value);
                 else if ("visit-sampling-temp".equals(key)) opts.visitSamplingTemperature = Double.parseDouble(value);
                 else if ("visit-sampling-until".equals(key)) opts.visitSamplingUntilTick = Integer.parseInt(value);
                 else if ("seed".equals(key)) opts.seed = Long.parseLong(value);

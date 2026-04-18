@@ -30,7 +30,9 @@ public class AlphaZeroAgent extends Agent {
     private int lastActiveTribe = -1;
     private int actionsThisTurn = 0;
     private double[] lastVisitPolicy;
+    private double[] lastImprovedPolicy;
     private ArrayList<ActionPolicyTrainingExample> lastActionPolicy;
+    private ArrayList<ActionPolicyTrainingExample> lastImprovedActionPolicy;
 
     public AlphaZeroAgent(long seed) {
         this(seed, new AZParams());
@@ -55,7 +57,9 @@ public class AlphaZeroAgent extends Agent {
     @Override
     public Action act(GameState gs, ElapsedCpuTimer ect) {
         lastVisitPolicy = null;
+        lastImprovedPolicy = null;
         lastActionPolicy = null;
+        lastImprovedActionPolicy = null;
         ArrayList<Action> allActions = gs.getAllAvailableActions();
         if (allActions.size() == 1) {
             return allActions.get(0);
@@ -93,7 +97,7 @@ public class AlphaZeroAgent extends Agent {
             return new EndTurn(gs.getActiveTribeID());
         }
 
-        Node root = new Node(null, gs.copy(), null, 1.0, 0);
+        Node root = new Node(null, gs.copy(), null, 1.0, 0.0, 0.0, 0);
         root.expand(rootActions);
 
         int iterations = 0;
@@ -119,7 +123,13 @@ public class AlphaZeroAgent extends Agent {
 
         lastVisitPolicy = root.visitPolicyByActionType();
         lastActionPolicy = root.visitPolicyByAction(rootState, playerID, allPlayerIDs);
+        lastImprovedPolicy = root.improvedPolicyByActionType();
+        lastImprovedActionPolicy = root.improvedPolicyByAction(rootState, playerID, allPlayerIDs);
         Node selected = root.bestChildByVisits();
+        Node improvedSelected = root.bestChildByImprovedScore();
+        if (improvedSelected != null) {
+            selected = improvedSelected;
+        }
         boolean sampledSelection = false;
         if (shouldSampleFromVisits(gs)) {
             Node sampled = root.sampleChildByVisits(params.visitSamplingTemperature);
@@ -162,6 +172,20 @@ public class AlphaZeroAgent extends Agent {
             return null;
         }
         return new ArrayList<>(lastActionPolicy);
+    }
+
+    public double[] lastImprovedPolicyTargets() {
+        if (lastImprovedPolicy == null) {
+            return null;
+        }
+        return lastImprovedPolicy.clone();
+    }
+
+    public ArrayList<ActionPolicyTrainingExample> lastImprovedActionPolicyExamples() {
+        if (lastImprovedActionPolicy == null) {
+            return null;
+        }
+        return new ArrayList<>(lastImprovedActionPolicy);
     }
 
     private Action safeAdvisorAction(GameState gs, ElapsedCpuTimer ect) {
@@ -463,6 +487,11 @@ public class AlphaZeroAgent extends Agent {
         }
     }
 
+    private double sampleGumbel() {
+        double u = Math.max(1e-12, Math.min(1.0 - 1e-12, rnd.nextDouble()));
+        return -Math.log(-Math.log(u));
+    }
+
     @Override
     public Agent copy() {
         return new AlphaZeroAgent(seed, params);
@@ -473,17 +502,22 @@ public class AlphaZeroAgent extends Agent {
         private final GameState state;
         private final Action actionFromParent;
         private final double prior;
+        private final double priorLogit;
+        private final double selectionLogit;
         private final int depth;
         private final ArrayList<Node> children;
         private boolean expanded;
         private int visits;
         private double valueSum;
 
-        Node(Node parent, GameState state, Action actionFromParent, double prior, int depth) {
+        Node(Node parent, GameState state, Action actionFromParent, double prior,
+             double priorLogit, double selectionLogit, int depth) {
             this.parent = parent;
             this.state = state;
             this.actionFromParent = actionFromParent;
             this.prior = prior;
+            this.priorLogit = priorLogit;
+            this.selectionLogit = selectionLogit;
             this.depth = depth;
             this.children = new ArrayList<>();
             this.expanded = false;
@@ -516,27 +550,31 @@ public class AlphaZeroAgent extends Agent {
                     continue;
                 }
                 fmCalls++;
-                double logit = actionPriorLogit(state, action, next, depth);
-                specs.add(new ChildSpec(action, next, logit));
+                double priorLogit = actionPriorLogit(state, action, next, depth);
+                double selectionLogit = priorLogit;
+                if (depth == 0 && params.rootGumbelScale > 0.0) {
+                    selectionLogit += params.rootGumbelScale * sampleGumbel();
+                }
+                specs.add(new ChildSpec(action, next, priorLogit, selectionLogit));
             }
 
             Collections.sort(specs, new Comparator<ChildSpec>() {
                 @Override
                 public int compare(ChildSpec a, ChildSpec b) {
-                    return Double.compare(b.logit, a.logit);
+                    return Double.compare(b.selectionLogit, a.selectionLogit);
                 }
             });
 
             int keep = Math.min(params.maxActionsPerNode, specs.size());
             double max = -Double.MAX_VALUE;
             for (int i = 0; i < keep; i++) {
-                max = Math.max(max, specs.get(i).logit);
+                max = Math.max(max, specs.get(i).selectionLogit);
             }
 
             double sum = 0.0;
             double[] priors = new double[keep];
             for (int i = 0; i < keep; i++) {
-                double scaled = (specs.get(i).logit - max) / Math.max(0.05, params.priorTemperature);
+                double scaled = (specs.get(i).selectionLogit - max) / Math.max(0.05, params.priorTemperature);
                 priors[i] = Math.exp(scaled);
                 sum += priors[i];
             }
@@ -555,7 +593,8 @@ public class AlphaZeroAgent extends Agent {
 
             for (int i = 0; i < keep; i++) {
                 ChildSpec spec = specs.get(i);
-                children.add(new Node(this, spec.state, spec.action, priors[i], depth + 1));
+                children.add(new Node(this, spec.state, spec.action, priors[i],
+                        spec.priorLogit, spec.selectionLogit, depth + 1));
             }
 
             expanded = true;
@@ -609,6 +648,28 @@ public class AlphaZeroAgent extends Agent {
             return selected;
         }
 
+        Node bestChildByImprovedScore() {
+            if (params.rootValueSelectionWeight <= 0.0 || depth != 0) {
+                return null;
+            }
+
+            Node selected = null;
+            double bestScore = -Double.MAX_VALUE;
+            for (Node child : children) {
+                if (child.visits <= 0) {
+                    continue;
+                }
+                double q = child.valueSum / child.visits;
+                double score = child.selectionLogit + params.rootValueSelectionWeight * q;
+                score = noise(score);
+                if (score > bestScore) {
+                    selected = child;
+                    bestScore = score;
+                }
+            }
+            return selected;
+        }
+
         Node sampleChildByVisits(double temperature) {
             double temp = Math.max(1e-6, temperature);
             double total = 0.0;
@@ -659,6 +720,26 @@ public class AlphaZeroAgent extends Agent {
             return policy;
         }
 
+        double[] improvedPolicyByActionType() {
+            double[] childWeights = improvedChildWeights();
+            if (childWeights == null) {
+                return null;
+            }
+
+            double[] policy = new double[Types.ACTION.values().length];
+            for (int i = 0; i < children.size(); i++) {
+                Node child = children.get(i);
+                if (child.actionFromParent == null || child.visits <= 0) {
+                    continue;
+                }
+                int actionType = child.actionFromParent.getActionType().ordinal();
+                if (actionType >= 0 && actionType < policy.length) {
+                    policy[actionType] += childWeights[i];
+                }
+            }
+            return policy;
+        }
+
         ArrayList<ActionPolicyTrainingExample> visitPolicyByAction(GameState parentState,
                                                                     int actor,
                                                                     ArrayList<Integer> ids) {
@@ -681,6 +762,67 @@ public class AlphaZeroAgent extends Agent {
                         ActionFeatures.extract(parentState, child.state, actor, ids, child.actionFromParent)));
             }
             return examples;
+        }
+
+        ArrayList<ActionPolicyTrainingExample> improvedPolicyByAction(GameState parentState,
+                                                                       int actor,
+                                                                       ArrayList<Integer> ids) {
+            ArrayList<ActionPolicyTrainingExample> examples = new ArrayList<>();
+            double[] childWeights = improvedChildWeights();
+            if (childWeights == null) {
+                return examples;
+            }
+            for (int i = 0; i < children.size(); i++) {
+                Node child = children.get(i);
+                if (child.actionFromParent == null) {
+                    continue;
+                }
+                examples.add(new ActionPolicyTrainingExample(childWeights[i],
+                        ActionFeatures.extract(parentState, child.state, actor, ids, child.actionFromParent)));
+            }
+            return examples;
+        }
+
+        private double[] improvedChildWeights() {
+            if (children.isEmpty()) {
+                return null;
+            }
+
+            double max = -Double.MAX_VALUE;
+            int usable = 0;
+            double[] scores = new double[children.size()];
+            for (int i = 0; i < children.size(); i++) {
+                Node child = children.get(i);
+                if (child.visits <= 0) {
+                    scores[i] = -Double.MAX_VALUE;
+                    continue;
+                }
+                double q = child.valueSum / child.visits;
+                scores[i] = child.priorLogit + params.improvedPolicyValueWeight * q;
+                max = Math.max(max, scores[i]);
+                usable++;
+            }
+            if (usable <= 0) {
+                return null;
+            }
+
+            double temp = Math.max(0.05, params.improvedPolicyTemperature);
+            double total = 0.0;
+            double[] weights = new double[children.size()];
+            for (int i = 0; i < children.size(); i++) {
+                if (scores[i] == -Double.MAX_VALUE) {
+                    continue;
+                }
+                weights[i] = Math.exp((scores[i] - max) / temp);
+                total += weights[i];
+            }
+            if (total <= 0.0) {
+                return null;
+            }
+            for (int i = 0; i < weights.length; i++) {
+                weights[i] /= total;
+            }
+            return weights;
         }
 
         Node findChild(Action action) {
@@ -706,12 +848,14 @@ public class AlphaZeroAgent extends Agent {
     private static class ChildSpec {
         final Action action;
         final GameState state;
-        final double logit;
+        final double priorLogit;
+        final double selectionLogit;
 
-        ChildSpec(Action action, GameState state, double logit) {
+        ChildSpec(Action action, GameState state, double priorLogit, double selectionLogit) {
             this.action = action;
             this.state = state;
-            this.logit = logit;
+            this.priorLogit = priorLogit;
+            this.selectionLogit = selectionLogit;
         }
     }
 }
