@@ -60,6 +60,7 @@ public class AlphaZeroTrainer {
         System.out.println("valuePositionBlend=" + opts.valuePositionBlend
                 + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " rankValueBlend=" + opts.rankValueBlend
+                + " survivalValueBlend=" + opts.survivalValueBlend
                 + " searchPositionBlend=" + opts.positionBlend
                 + " advisorMargin=" + opts.advisorOverrideMargin
                 + " opponentAdversaryWeight=" + opts.opponentAdversaryWeight);
@@ -343,6 +344,7 @@ public class AlphaZeroTrainer {
         obj.put("value_position_blend", opts.valuePositionBlend);
         obj.put("terminal_position_blend", opts.terminalPositionBlend);
         obj.put("rank_value_blend", opts.rankValueBlend);
+        obj.put("survival_value_blend", opts.survivalValueBlend);
         obj.put("search_position_blend", opts.positionBlend);
         obj.put("advisor_override_margin", opts.advisorOverrideMargin);
         obj.put("opponent_adversary_weight", opts.opponentAdversaryWeight);
@@ -434,7 +436,7 @@ public class AlphaZeroTrainer {
                 trajectoryWriter, setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
                 opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
                 opts.valuePositionBlend, opts.terminalPositionBlend, opts.rankValueBlend,
-                opts.shouldRecordValueFor(botName), seed);
+                opts.survivalValueBlend, opts.shouldRecordValueFor(botName), seed);
     }
 
     private static MatchResult evaluate(Options opts, String opponent, int evalGames, long seedBase) {
@@ -876,6 +878,7 @@ public class AlphaZeroTrainer {
         double valuePositionBlend = 0.0;
         double terminalPositionBlend = 0.0;
         double rankValueBlend = 0.0;
+        double survivalValueBlend = 0.0;
         double cpuct = 1.50;
         double priorTemperature = 0.75;
         double rootNoiseFraction = 0.0;
@@ -973,6 +976,7 @@ public class AlphaZeroTrainer {
                 else if ("value-position-blend".equals(key)) opts.valuePositionBlend = Double.parseDouble(value);
                 else if ("terminal-position-blend".equals(key)) opts.terminalPositionBlend = Double.parseDouble(value);
                 else if ("rank-value-blend".equals(key)) opts.rankValueBlend = Double.parseDouble(value);
+                else if ("survival-value-blend".equals(key)) opts.survivalValueBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
                 else if ("visit-sampling-temp".equals(key)) opts.visitSamplingTemperature = Double.parseDouble(value);
@@ -1044,6 +1048,7 @@ public class AlphaZeroTrainer {
             minPlayers = Math.max(2, Math.min(Types.TRIBE.values().length, minPlayers));
             maxPlayers = Math.max(minPlayers, Math.min(Types.TRIBE.values().length, maxPlayers));
             rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
+            survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
         }
 
         private static String derivedBestPath(String path) {

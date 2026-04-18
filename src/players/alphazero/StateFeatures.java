@@ -182,6 +182,29 @@ public final class StateFeatures {
         return Math.tanh(raw / 3.0);
     }
 
+    public static double survivalValue(GameState state, int playerID, ArrayList<Integer> allIds) {
+        double myCities = state.getCities(playerID).size();
+        if (myCities <= 0.0) {
+            return -1.0;
+        }
+
+        double bestOtherCities = 0.0;
+        double bestOtherProduction = 0.0;
+        for (Integer id : allIds) {
+            if (id == playerID) {
+                continue;
+            }
+            bestOtherCities = Math.max(bestOtherCities, state.getCities(id).size());
+            bestOtherProduction = Math.max(bestOtherProduction, state.getTribeProduction(id));
+        }
+
+        double cityDelta = myCities - bestOtherCities;
+        double productionDelta = state.getTribeProduction(playerID) - bestOtherProduction;
+        double capitalSafety = state.getTribe(playerID).controlsCapital() ? 1.0 : -1.8;
+        double raw = 1.35 * cityDelta + 0.05 * productionDelta + capitalSafety;
+        return Math.tanh(raw / 3.0);
+    }
+
     private static double[] metrics(GameState state, int playerID) {
         double[] m = new double[METRIC_COUNT];
         Tribe tribe = state.getTribe(playerID);
