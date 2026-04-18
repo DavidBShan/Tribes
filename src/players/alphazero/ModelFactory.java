@@ -38,6 +38,14 @@ public final class ModelFactory {
         return LinearActionPolicyFunction.load(path);
     }
 
+    public static boolean isSharedNeural(String type) {
+        return SHARED_NEURAL.equalsIgnoreCase(type);
+    }
+
+    static SharedNeuralCore loadSharedNeuralCore(String path) {
+        return sharedNeuralCore(path);
+    }
+
     private static synchronized SharedNeuralCore sharedNeuralCore(String path) {
         File file = new File(path);
         File parent = file.getAbsoluteFile().getParentFile();

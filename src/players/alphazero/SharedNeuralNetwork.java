@@ -30,6 +30,20 @@ final class SharedNeuralCore {
     private String valuePath;
     private String policyPath;
 
+    static final class TrainingResult {
+        final double valueLoss;
+        final double policyLoss;
+        final int valueRows;
+        final int policyRows;
+
+        TrainingResult(double valueLoss, double policyLoss, int valueRows, int policyRows) {
+            this.valueLoss = valueLoss;
+            this.policyLoss = policyLoss;
+            this.valueRows = valueRows;
+            this.policyRows = policyRows;
+        }
+    }
+
     SharedNeuralCore() {
         this(DEFAULT_HIDDEN, 20260418L);
     }
@@ -89,31 +103,7 @@ final class SharedNeuralCore {
             Collections.shuffle(examples, rnd);
             double loss = 0.0;
             for (ValueTrainingExample example : examples) {
-                double[] hidden = hidden(example.features);
-                double z = valueB;
-                for (int j = 0; j < hiddenSize; j++) {
-                    z += valueW[j] * hidden[j];
-                }
-                double pred = Math.tanh(z);
-                double error = pred - example.label;
-                loss += error * error;
-
-                double dz = error * (1.0 - pred * pred);
-                double[] oldValueW = valueW.clone();
-                for (int j = 0; j < hiddenSize; j++) {
-                    double grad = dz * hidden[j] + l2 * valueW[j];
-                    valueW[j] -= learningRate * grad;
-                }
-                valueB -= learningRate * dz;
-
-                for (int j = 0; j < hiddenSize; j++) {
-                    double dh = dz * oldValueW[j] * (1.0 - hidden[j] * hidden[j]);
-                    for (int i = 0; i < INPUTS; i++) {
-                        double grad = dh * example.features[i] + l2 * w1[j][i];
-                        w1[j][i] -= learningRate * grad;
-                    }
-                    b1[j] -= learningRate * dh;
-                }
+                loss += updateValue(example, learningRate, l2);
             }
             lastLoss = loss / examples.size();
         }
@@ -138,43 +128,146 @@ final class SharedNeuralCore {
                 }
 
                 trainedRows++;
-                double[] hidden = hidden(example.features);
-                double[] probs = predictPolicyFromHidden(hidden);
-                double[] error = new double[ACTIONS];
-                for (int action = 0; action < ACTIONS; action++) {
-                    double target = example.targetFor(action, ACTIONS);
-                    error[action] = probs[action] - target;
-                    if (target > 0.0) {
-                        loss += -target * Math.log(Math.max(1e-9, probs[action]));
-                    }
-                }
-
-                double[][] oldPolicyW = copy(policyW);
-                for (int action = 0; action < ACTIONS; action++) {
-                    for (int j = 0; j < hiddenSize; j++) {
-                        double grad = error[action] * hidden[j] + l2 * policyW[action][j];
-                        policyW[action][j] -= learningRate * grad;
-                    }
-                    policyB[action] -= learningRate * error[action];
-                }
-
-                for (int j = 0; j < hiddenSize; j++) {
-                    double dh = 0.0;
-                    for (int action = 0; action < ACTIONS; action++) {
-                        dh += error[action] * oldPolicyW[action][j];
-                    }
-                    dh *= 1.0 - hidden[j] * hidden[j];
-                    for (int i = 0; i < INPUTS; i++) {
-                        double grad = dh * example.features[i] + l2 * w1[j][i];
-                        w1[j][i] -= learningRate * grad;
-                    }
-                    b1[j] -= learningRate * dh;
-                }
+                loss += updatePolicy(example, learningRate, l2);
             }
             lastLoss = trainedRows > 0 ? loss / trainedRows : Double.NaN;
         }
         trained = true;
         return lastLoss;
+    }
+
+    TrainingResult trainJoint(ArrayList<ValueTrainingExample> valueExamples,
+                              ArrayList<PolicyTrainingExample> policyExamples,
+                              int valueEpochs, int policyEpochs,
+                              double valueLearningRate, double policyLearningRate,
+                              double l2, long seed) {
+        boolean hasValue = valueExamples != null && !valueExamples.isEmpty() && valueEpochs > 0;
+        boolean hasPolicy = policyExamples != null && !policyExamples.isEmpty() && policyEpochs > 0;
+        if (!hasValue && !hasPolicy) {
+            return new TrainingResult(Double.NaN, Double.NaN, 0, 0);
+        }
+
+        ArrayList<ValueTrainingExample> values = hasValue
+                ? new ArrayList<>(valueExamples) : new ArrayList<>();
+        ArrayList<PolicyTrainingExample> policies = hasPolicy
+                ? new ArrayList<>(policyExamples) : new ArrayList<>();
+        Random rnd = new Random(seed);
+        int rounds = Math.max(valueEpochs, policyEpochs);
+        double lastValueLoss = Double.NaN;
+        double lastPolicyLoss = Double.NaN;
+        int lastValueRows = 0;
+        int lastPolicyRows = 0;
+
+        for (int epoch = 0; epoch < rounds; epoch++) {
+            boolean trainValueThisEpoch = epoch < valueEpochs && !values.isEmpty();
+            boolean trainPolicyThisEpoch = epoch < policyEpochs && !policies.isEmpty();
+            if (trainValueThisEpoch) {
+                Collections.shuffle(values, rnd);
+            }
+            if (trainPolicyThisEpoch) {
+                Collections.shuffle(policies, rnd);
+            }
+
+            int steps = Math.max(trainValueThisEpoch ? values.size() : 0,
+                    trainPolicyThisEpoch ? policies.size() : 0);
+            double valueLoss = 0.0;
+            double policyLoss = 0.0;
+            int valueRows = 0;
+            int policyRows = 0;
+
+            for (int step = 0; step < steps; step++) {
+                if (trainValueThisEpoch) {
+                    ValueTrainingExample example = values.get(step % values.size());
+                    valueLoss += updateValue(example, valueLearningRate, l2);
+                    valueRows++;
+                }
+                if (trainPolicyThisEpoch) {
+                    PolicyTrainingExample example = policies.get(step % policies.size());
+                    if (example.hasValidTarget(ACTIONS)) {
+                        policyLoss += updatePolicy(example, policyLearningRate, l2);
+                        policyRows++;
+                    }
+                }
+            }
+
+            if (valueRows > 0) {
+                lastValueLoss = valueLoss / valueRows;
+                lastValueRows = valueRows;
+            }
+            if (policyRows > 0) {
+                lastPolicyLoss = policyLoss / policyRows;
+                lastPolicyRows = policyRows;
+            }
+        }
+
+        trained = true;
+        return new TrainingResult(lastValueLoss, lastPolicyLoss, lastValueRows, lastPolicyRows);
+    }
+
+    private double updateValue(ValueTrainingExample example, double learningRate, double l2) {
+        double[] hidden = hidden(example.features);
+        double z = valueB;
+        for (int j = 0; j < hiddenSize; j++) {
+            z += valueW[j] * hidden[j];
+        }
+        double pred = Math.tanh(z);
+        double error = pred - example.label;
+        double loss = error * error;
+
+        double dz = error * (1.0 - pred * pred);
+        double[] oldValueW = valueW.clone();
+        for (int j = 0; j < hiddenSize; j++) {
+            double grad = dz * hidden[j] + l2 * valueW[j];
+            valueW[j] -= learningRate * grad;
+        }
+        valueB -= learningRate * dz;
+
+        for (int j = 0; j < hiddenSize; j++) {
+            double dh = dz * oldValueW[j] * (1.0 - hidden[j] * hidden[j]);
+            for (int i = 0; i < INPUTS; i++) {
+                double grad = dh * example.features[i] + l2 * w1[j][i];
+                w1[j][i] -= learningRate * grad;
+            }
+            b1[j] -= learningRate * dh;
+        }
+        return loss;
+    }
+
+    private double updatePolicy(PolicyTrainingExample example, double learningRate, double l2) {
+        double[] hidden = hidden(example.features);
+        double[] probs = predictPolicyFromHidden(hidden);
+        double[] error = new double[ACTIONS];
+        double loss = 0.0;
+        for (int action = 0; action < ACTIONS; action++) {
+            double target = example.targetFor(action, ACTIONS);
+            error[action] = probs[action] - target;
+            if (target > 0.0) {
+                loss += -target * Math.log(Math.max(1e-9, probs[action]));
+            }
+        }
+
+        double[][] oldPolicyW = copy(policyW);
+        for (int action = 0; action < ACTIONS; action++) {
+            for (int j = 0; j < hiddenSize; j++) {
+                double grad = error[action] * hidden[j] + l2 * policyW[action][j];
+                policyW[action][j] -= learningRate * grad;
+            }
+            policyB[action] -= learningRate * error[action];
+        }
+
+        for (int j = 0; j < hiddenSize; j++) {
+            double dh = 0.0;
+            for (int action = 0; action < ACTIONS; action++) {
+                dh += error[action] * oldPolicyW[action][j];
+            }
+            dh *= 1.0 - hidden[j] * hidden[j];
+            for (int i = 0; i < INPUTS; i++) {
+                double grad = dh * example.features[i] + l2 * w1[j][i];
+                w1[j][i] -= learningRate * grad;
+            }
+            b1[j] -= learningRate * dh;
+        }
+        return loss;
     }
 
     void rememberValuePath(String path) {

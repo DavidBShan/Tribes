@@ -135,23 +135,51 @@ public class AlphaZeroTrainer {
                         opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget), trajectoryWriter);
 
                 ArrayList<ValueTrainingExample> examples = ValueDataset.load(opts.dataPath, opts.maxTrainingExamples);
-                ValueModel vf = ModelFactory.loadValue(opts.networkType, opts.modelPath);
-                if (!examples.isEmpty()) {
-                    double loss = vf.train(examples, opts.epochs, opts.learningRate, opts.l2, opts.seed + iteration);
-                    vf.save(opts.modelPath);
-                    System.out.printf("trained value on %d examples; mse=%.5f%n", examples.size(), loss);
+                ArrayList<PolicyTrainingExample> policyExamples =
+                        PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples);
+                if (ModelFactory.isSharedNeural(opts.networkType)) {
+                    SharedNeuralCore core = ModelFactory.loadSharedNeuralCore(opts.modelPath);
+                    SharedNeuralCore.TrainingResult loss = core.trainJoint(examples, policyExamples,
+                            opts.epochs, opts.policyEpochs, opts.learningRate, opts.policyLearningRate,
+                            opts.l2, opts.seed + 991 * iteration);
+                    core.save(opts.modelPath);
+                    if (!opts.policyPath.equals(opts.modelPath)) {
+                        core.save(opts.policyPath);
+                    }
+                    System.out.println("trained shared policy-value trunk with alternating joint updates");
+                    if (!examples.isEmpty()) {
+                        System.out.printf("trained value on %d examples; mse=%.5f%n",
+                                examples.size(), loss.valueLoss);
+                    } else {
+                        System.out.println("trained value on 0 examples; skipped");
+                    }
+                    if (!policyExamples.isEmpty()) {
+                        System.out.printf("trained policy on %d examples; xent=%.5f%n",
+                                policyExamples.size(), loss.policyLoss);
+                    } else {
+                        System.out.println("trained policy on 0 examples; skipped");
+                    }
                 } else {
-                    System.out.println("trained value on 0 examples; skipped");
-                }
+                    ValueModel vf = ModelFactory.loadValue(opts.networkType, opts.modelPath);
+                    if (!examples.isEmpty()) {
+                        double loss = vf.train(examples, opts.epochs, opts.learningRate, opts.l2,
+                                opts.seed + iteration);
+                        vf.save(opts.modelPath);
+                        System.out.printf("trained value on %d examples; mse=%.5f%n", examples.size(), loss);
+                    } else {
+                        System.out.println("trained value on 0 examples; skipped");
+                    }
 
-                ArrayList<PolicyTrainingExample> policyExamples = PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples);
-                PolicyModel policy = ModelFactory.loadPolicy(opts.networkType, opts.policyPath);
-                if (!policyExamples.isEmpty()) {
-                    double policyLoss = policy.train(policyExamples, opts.policyEpochs, opts.policyLearningRate, opts.l2, opts.seed + 991 * iteration);
-                    policy.save(opts.policyPath);
-                    System.out.printf("trained policy on %d examples; xent=%.5f%n", policyExamples.size(), policyLoss);
-                } else {
-                    System.out.println("trained policy on 0 examples; skipped");
+                    PolicyModel policy = ModelFactory.loadPolicy(opts.networkType, opts.policyPath);
+                    if (!policyExamples.isEmpty()) {
+                        double policyLoss = policy.train(policyExamples, opts.policyEpochs,
+                                opts.policyLearningRate, opts.l2, opts.seed + 991 * iteration);
+                        policy.save(opts.policyPath);
+                        System.out.printf("trained policy on %d examples; xent=%.5f%n",
+                                policyExamples.size(), policyLoss);
+                    } else {
+                        System.out.println("trained policy on 0 examples; skipped");
+                    }
                 }
 
                 if (!opts.actionPolicyPath.isEmpty()) {
