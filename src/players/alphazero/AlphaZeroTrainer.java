@@ -62,6 +62,12 @@ public class AlphaZeroTrainer {
                     + " end=" + opts.progressiveSearchEndCalls
                     + " steps=" + opts.progressiveSearchSteps);
         }
+        if (opts.progressiveHeuristicBlend) {
+            System.out.println("progressiveHeuristicBlend=true"
+                    + " start=" + opts.progressiveHeuristicStart
+                    + " end=" + opts.progressiveHeuristicEnd
+                    + " steps=" + opts.progressiveHeuristicSteps);
+        }
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha
                 + " rootGumbelScale=" + opts.rootGumbelScale);
@@ -127,10 +133,11 @@ public class AlphaZeroTrainer {
 
             for (int iteration = 1; iteration <= opts.iterations; iteration++) {
                 System.out.println("=== iteration " + iteration + " ===");
-                System.out.printf("iteration search calls: train=%d eval=%d reference=%d progressive=%s%n",
+                System.out.printf("iteration search calls: train=%d eval=%d reference=%d progressive=%s "
+                                + "trainingHeuristicBlend=%.3f%n",
                         opts.trainingSearchCallsForIteration(iteration), opts.searchFmCalls,
                         opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls,
-                        opts.progressiveSearchCalls);
+                        opts.progressiveSearchCalls, opts.trainingHeuristicBlendForIteration(iteration));
                 runTrainingGames(opts, iteration,
                         opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget), trajectoryWriter);
 
@@ -421,6 +428,7 @@ public class AlphaZeroTrainer {
                                          SftTrajectoryWriter trajectoryWriter) {
         int nGames = selfPlayOnly && !opts.selfPlayOnly ? opts.selfPlayGamesAfterTarget : opts.gamesPerIteration;
         opts.activeTrainingSearchFmCalls = opts.trainingSearchCallsForIteration(iteration);
+        opts.activeTrainingHeuristicBlend = opts.trainingHeuristicBlendForIteration(iteration);
         try {
             for (int gameIdx = 0; gameIdx < nGames; gameIdx++) {
                 long seed = opts.seed + iteration * 10000L + gameIdx * 31L;
@@ -454,6 +462,7 @@ public class AlphaZeroTrainer {
             }
         } finally {
             opts.activeTrainingSearchFmCalls = -1;
+            opts.activeTrainingHeuristicBlend = Double.NaN;
         }
     }
 
@@ -492,6 +501,13 @@ public class AlphaZeroTrainer {
             obj.put("progressive_search_start_calls", opts.progressiveSearchStartCalls);
             obj.put("progressive_search_end_calls", opts.progressiveSearchEndCalls);
             obj.put("progressive_search_steps", opts.progressiveSearchSteps);
+        }
+        obj.put("progressive_heuristic_blend", opts.progressiveHeuristicBlend);
+        if (opts.progressiveHeuristicBlend) {
+            obj.put("progressive_heuristic_start", opts.progressiveHeuristicStart);
+            obj.put("progressive_heuristic_end", opts.progressiveHeuristicEnd);
+            obj.put("progressive_heuristic_steps", opts.progressiveHeuristicSteps);
+            obj.put("training_heuristic_blend", opts.activeHeuristicBlend());
         }
         obj.put("opponent_calls", opts.opponentFmCalls);
         obj.put("search_depth", opts.searchDepth);
@@ -756,7 +772,7 @@ public class AlphaZeroTrainer {
         params.priorTemperature = opts.priorTemperature;
         params.maxActionsPerNode = opts.maxActionsPerNode;
         params.prefilterActions = opts.prefilterActions;
-        params.heuristicBlend = opts.heuristicBlend;
+        params.heuristicBlend = training ? opts.activeHeuristicBlend() : opts.heuristicBlend;
         params.disagreementHeuristicBlend = opts.disagreementHeuristicBlend;
         params.disagreementHeuristicThreshold = opts.disagreementHeuristicThreshold;
         params.positionBlend = opts.positionBlend;
@@ -1210,6 +1226,9 @@ public class AlphaZeroTrainer {
         double sampleProbability = 0.35;
         double trajectorySampleProbability = 1.0;
         double heuristicBlend = 0.35;
+        double progressiveHeuristicStart = Double.NaN;
+        double progressiveHeuristicEnd = Double.NaN;
+        double activeTrainingHeuristicBlend = Double.NaN;
         double disagreementHeuristicBlend = -1.0;
         double disagreementHeuristicThreshold = 0.35;
         double positionBlend = 0.20;
@@ -1246,6 +1265,8 @@ public class AlphaZeroTrainer {
         boolean stratifiedEvalPlayerCounts = false;
         boolean stratifiedEvalPlayerCountsConfigured = false;
         boolean progressiveSearchCalls = false;
+        boolean progressiveHeuristicBlend = false;
+        int progressiveHeuristicSteps = 4;
         String trainingOpponentMode = "mixed";
         boolean recordTrajectories = true;
         boolean evalReference = false;
@@ -1307,6 +1328,10 @@ public class AlphaZeroTrainer {
                 else if ("progressive-search-start".equals(key)) opts.progressiveSearchStartCalls = Integer.parseInt(value);
                 else if ("progressive-search-end".equals(key)) opts.progressiveSearchEndCalls = Integer.parseInt(value);
                 else if ("progressive-search-steps".equals(key)) opts.progressiveSearchSteps = Integer.parseInt(value);
+                else if ("progressive-heuristic-blend".equals(key)) opts.progressiveHeuristicBlend = Boolean.parseBoolean(value);
+                else if ("progressive-heuristic-start".equals(key)) opts.progressiveHeuristicStart = Double.parseDouble(value);
+                else if ("progressive-heuristic-end".equals(key)) opts.progressiveHeuristicEnd = Double.parseDouble(value);
+                else if ("progressive-heuristic-steps".equals(key)) opts.progressiveHeuristicSteps = Integer.parseInt(value);
                 else if ("depth".equals(key)) opts.searchDepth = Integer.parseInt(value);
                 else if ("max-actions".equals(key)) opts.maxActionsPerNode = Integer.parseInt(value);
                 else if ("prefilter".equals(key)) opts.prefilterActions = Integer.parseInt(value);
@@ -1396,6 +1421,7 @@ public class AlphaZeroTrainer {
             learnedValueOnly = true;
             prefilterByStaticScore = false;
             heuristicBlend = 0.0;
+            progressiveHeuristicBlend = false;
             positionBlend = 0.0;
             advisorOverrideMargin = -1.0;
             policyLogitWeight = Math.max(policyLogitWeight, 1.0);
@@ -1440,6 +1466,15 @@ public class AlphaZeroTrainer {
             progressiveSearchStartCalls = Math.max(1, progressiveSearchStartCalls);
             progressiveSearchEndCalls = Math.max(1, progressiveSearchEndCalls);
             progressiveSearchSteps = Math.max(1, progressiveSearchSteps);
+            if (Double.isNaN(progressiveHeuristicStart)) {
+                progressiveHeuristicStart = heuristicBlend;
+            }
+            if (Double.isNaN(progressiveHeuristicEnd)) {
+                progressiveHeuristicEnd = heuristicBlend;
+            }
+            progressiveHeuristicStart = Math.max(0.0, Math.min(1.0, progressiveHeuristicStart));
+            progressiveHeuristicEnd = Math.max(0.0, Math.min(1.0, progressiveHeuristicEnd));
+            progressiveHeuristicSteps = Math.max(1, progressiveHeuristicSteps);
             trainingOpponentMode = trainingOpponentMode == null ? "mixed" : trainingOpponentMode.trim();
             if (trainingOpponentMode.isEmpty()) {
                 trainingOpponentMode = "mixed";
@@ -1556,6 +1591,23 @@ public class AlphaZeroTrainer {
 
         int activeAzSearchCalls() {
             return activeTrainingSearchFmCalls > 0 ? activeTrainingSearchFmCalls : searchFmCalls;
+        }
+
+        double trainingHeuristicBlendForIteration(int iteration) {
+            if (!progressiveHeuristicBlend) {
+                return heuristicBlend;
+            }
+            if (progressiveHeuristicSteps <= 1) {
+                return progressiveHeuristicEnd;
+            }
+            int boundedIteration = Math.max(1, Math.min(iteration, progressiveHeuristicSteps));
+            double t = (boundedIteration - 1) / (double) (progressiveHeuristicSteps - 1);
+            return progressiveHeuristicStart + t * (progressiveHeuristicEnd - progressiveHeuristicStart);
+        }
+
+        double activeHeuristicBlend() {
+            return Double.isNaN(activeTrainingHeuristicBlend)
+                    ? heuristicBlend : activeTrainingHeuristicBlend;
         }
 
         boolean useMixedTrainingOpponentMode() {
