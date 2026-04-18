@@ -48,6 +48,7 @@ public class AlphaZeroTrainer {
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         System.out.println("baselineInitialCheckpoint=" + opts.baselineInitialCheckpoint);
+        System.out.println("gatePlayerCountFloor=" + opts.gatePlayerCountFloor);
         System.out.println("referenceRefreshInterval=" + opts.referenceRefreshInterval);
         if (!opts.leagueDir.isEmpty()) {
             System.out.println("leagueDir=" + opts.leagueDir
@@ -101,7 +102,7 @@ public class AlphaZeroTrainer {
                     reference = evaluate(opts, "REFERENCE_AZ", opts.evalGames, opts.seed + 930000000L);
                     System.out.println("initial " + reference);
                 }
-                bestCheckpoint = CheckpointScore.from(simple, osla, reference);
+                bestCheckpoint = CheckpointScore.from(simple, osla, reference, opts.gatePlayerCountFloor);
                 saveBestCheckpoint(opts);
                 saveLeagueSnapshot(opts, "initial", bestCheckpoint);
                 System.out.println(bestCheckpoint.format("initial best checkpoint"));
@@ -164,7 +165,7 @@ public class AlphaZeroTrainer {
                     System.out.println(reference);
                 }
 
-                CheckpointScore checkpoint = CheckpointScore.from(simple, osla, reference);
+                CheckpointScore checkpoint = CheckpointScore.from(simple, osla, reference, opts.gatePlayerCountFloor);
                 System.out.println(checkpoint.format("checkpoint candidate"));
                 if (bestCheckpoint == null || checkpoint.betterThan(bestCheckpoint)) {
                     saveBestCheckpoint(opts);
@@ -217,8 +218,8 @@ public class AlphaZeroTrainer {
     }
 
     private static void saveBestCheckpoint(Options opts) throws IOException {
-        copyFile(opts.modelPath, opts.bestModelPath);
-        copyFile(opts.policyPath, opts.bestPolicyPath);
+        copyFileIfConfigured(opts.modelPath, opts.bestModelPath);
+        copyFileIfConfigured(opts.policyPath, opts.bestPolicyPath);
         copyFileIfConfigured(opts.actionPolicyPath, opts.bestActionPolicyPath);
     }
 
@@ -462,6 +463,7 @@ public class AlphaZeroTrainer {
         obj.put("league_dir", opts.leagueDir);
         obj.put("league_max_snapshots", opts.leagueMaxSnapshots);
         obj.put("league_snapshot_interval", opts.leagueSnapshotInterval);
+        obj.put("gate_player_count_floor", opts.gatePlayerCountFloor);
 
         JSONArray bots = new JSONArray();
         for (String bot : setup.bots) {
@@ -861,6 +863,10 @@ public class AlphaZeroTrainer {
         int opponentScoreTotal;
         int marginTotal;
         final int[] playerCountBuckets = new int[Types.TRIBE.values().length + 1];
+        final int[] playerCountWins = new int[Types.TRIBE.values().length + 1];
+        final int[] playerCountLosses = new int[Types.TRIBE.values().length + 1];
+        final int[] playerCountIncomplete = new int[Types.TRIBE.values().length + 1];
+        final int[] playerCountMarginTotal = new int[Types.TRIBE.values().length + 1];
 
         MatchResult(String agent, String opponent) {
             this.agent = agent;
@@ -877,6 +883,14 @@ public class AlphaZeroTrainer {
             marginTotal += outcome.margin();
             if (playerCount >= 0 && playerCount < playerCountBuckets.length) {
                 playerCountBuckets[playerCount]++;
+                playerCountMarginTotal[playerCount] += outcome.margin();
+                if (outcome.result == Types.RESULT.WIN) {
+                    playerCountWins[playerCount]++;
+                } else if (outcome.result == Types.RESULT.LOSS) {
+                    playerCountLosses[playerCount]++;
+                } else {
+                    playerCountIncomplete[playerCount]++;
+                }
             }
             if (outcome.result == Types.RESULT.WIN) {
                 wins++;
@@ -895,6 +909,28 @@ public class AlphaZeroTrainer {
         double avgMargin() {
             int n = wins + losses + incomplete;
             return n == 0 ? 0.0 : (double) marginTotal / n;
+        }
+
+        double playerCountFloorWinRate() {
+            double floor = Double.POSITIVE_INFINITY;
+            for (int i = 0; i < playerCountBuckets.length; i++) {
+                int n = playerCountBuckets[i];
+                if (n > 0) {
+                    floor = Math.min(floor, (double) playerCountWins[i] / n);
+                }
+            }
+            return floor == Double.POSITIVE_INFINITY ? winRate() : floor;
+        }
+
+        double playerCountFloorMargin() {
+            double floor = Double.POSITIVE_INFINITY;
+            for (int i = 0; i < playerCountBuckets.length; i++) {
+                int n = playerCountBuckets[i];
+                if (n > 0) {
+                    floor = Math.min(floor, (double) playerCountMarginTotal[i] / n);
+                }
+            }
+            return floor == Double.POSITIVE_INFINITY ? avgMargin() : floor;
         }
 
         @Override
@@ -928,11 +964,21 @@ public class AlphaZeroTrainer {
         final double simpleMargin;
         final double oslaMargin;
         final double referenceMargin;
+        final boolean playerCountFloorGate;
+        final double simpleGateWinRate;
+        final double oslaGateWinRate;
+        final double referenceGateWinRate;
+        final double simpleGateMargin;
+        final double oslaGateMargin;
+        final double referenceGateMargin;
         static final double WIN_RATE_NOISE_BAND = 0.125;
 
         CheckpointScore(double score, double marginFloor, double marginAverage,
                         double simpleWinRate, double oslaWinRate, double referenceWinRate,
-                        double simpleMargin, double oslaMargin, double referenceMargin) {
+                        double simpleMargin, double oslaMargin, double referenceMargin,
+                        boolean playerCountFloorGate,
+                        double simpleGateWinRate, double oslaGateWinRate, double referenceGateWinRate,
+                        double simpleGateMargin, double oslaGateMargin, double referenceGateMargin) {
             this.score = score;
             this.marginFloor = marginFloor;
             this.marginAverage = marginAverage;
@@ -942,24 +988,42 @@ public class AlphaZeroTrainer {
             this.simpleMargin = simpleMargin;
             this.oslaMargin = oslaMargin;
             this.referenceMargin = referenceMargin;
+            this.playerCountFloorGate = playerCountFloorGate;
+            this.simpleGateWinRate = simpleGateWinRate;
+            this.oslaGateWinRate = oslaGateWinRate;
+            this.referenceGateWinRate = referenceGateWinRate;
+            this.simpleGateMargin = simpleGateMargin;
+            this.oslaGateMargin = oslaGateMargin;
+            this.referenceGateMargin = referenceGateMargin;
         }
 
-        static CheckpointScore from(MatchResult simple, MatchResult osla, MatchResult reference) {
-            double score = Math.min(simple.winRate(), osla.winRate());
-            double marginFloor = Math.min(simple.avgMargin(), osla.avgMargin());
+        static CheckpointScore from(MatchResult simple, MatchResult osla, MatchResult reference,
+                                    boolean playerCountFloorGate) {
+            double simpleGateWin = playerCountFloorGate ? simple.playerCountFloorWinRate() : simple.winRate();
+            double oslaGateWin = playerCountFloorGate ? osla.playerCountFloorWinRate() : osla.winRate();
+            double simpleGateMargin = playerCountFloorGate ? simple.playerCountFloorMargin() : simple.avgMargin();
+            double oslaGateMargin = playerCountFloorGate ? osla.playerCountFloorMargin() : osla.avgMargin();
+            double score = Math.min(simpleGateWin, oslaGateWin);
+            double marginFloor = Math.min(simpleGateMargin, oslaGateMargin);
             double marginAverage = (simple.avgMargin() + osla.avgMargin()) / 2.0;
             double referenceWinRate = Double.NaN;
             double referenceMargin = Double.NaN;
+            double referenceGateWin = Double.NaN;
+            double referenceGateMargin = Double.NaN;
             if (reference != null) {
                 referenceWinRate = reference.winRate();
                 referenceMargin = reference.avgMargin();
-                score = Math.min(score, referenceWinRate);
-                marginFloor = Math.min(marginFloor, referenceMargin);
+                referenceGateWin = playerCountFloorGate ? reference.playerCountFloorWinRate() : referenceWinRate;
+                referenceGateMargin = playerCountFloorGate ? reference.playerCountFloorMargin() : referenceMargin;
+                score = Math.min(score, referenceGateWin);
+                marginFloor = Math.min(marginFloor, referenceGateMargin);
                 marginAverage = (simple.avgMargin() + osla.avgMargin() + referenceMargin) / 3.0;
             }
             return new CheckpointScore(score, marginFloor, marginAverage,
                     simple.winRate(), osla.winRate(), referenceWinRate,
-                    simple.avgMargin(), osla.avgMargin(), referenceMargin);
+                    simple.avgMargin(), osla.avgMargin(), referenceMargin,
+                    playerCountFloorGate, simpleGateWin, oslaGateWin, referenceGateWin,
+                    simpleGateMargin, oslaGateMargin, referenceGateMargin);
         }
 
         boolean betterThan(CheckpointScore other) {
@@ -985,10 +1049,20 @@ public class AlphaZeroTrainer {
         String format(String prefix) {
             return String.format("%s: score=%.3f marginFloor=%.1f marginAvg=%.1f "
                             + "simpleWin=%.3f oslaWin=%.3f referenceWin=%s "
-                            + "simpleMargin=%.1f oslaMargin=%.1f referenceMargin=%s",
+                            + "simpleMargin=%.1f oslaMargin=%.1f referenceMargin=%s%s",
                     prefix, score, marginFloor, marginAverage,
                     simpleWinRate, oslaWinRate, formatMaybe(referenceWinRate),
-                    simpleMargin, oslaMargin, formatMaybe(referenceMargin));
+                    simpleMargin, oslaMargin, formatMaybe(referenceMargin), gateSuffix());
+        }
+
+        private String gateSuffix() {
+            if (!playerCountFloorGate) {
+                return "";
+            }
+            return String.format(" gate=playerCountFloor simpleGate=%.3f oslaGate=%.3f referenceGate=%s "
+                            + "simpleGateMargin=%.1f oslaGateMargin=%.1f referenceGateMargin=%s",
+                    simpleGateWinRate, oslaGateWinRate, formatMaybe(referenceGateWinRate),
+                    simpleGateMargin, oslaGateMargin, formatMaybe(referenceGateMargin));
         }
 
         private static String formatMaybe(double value) {
@@ -1085,6 +1159,7 @@ public class AlphaZeroTrainer {
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
         boolean baselineInitialCheckpoint = false;
+        boolean gatePlayerCountFloor = false;
         boolean pureAz = false;
         boolean tacticalShortcuts = true;
         boolean advisorOverride = true;
@@ -1187,6 +1262,7 @@ public class AlphaZeroTrainer {
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
                 else if ("baseline-initial-checkpoint".equals(key)) opts.baselineInitialCheckpoint = Boolean.parseBoolean(value);
+                else if ("gate-player-count-floor".equals(key)) opts.gatePlayerCountFloor = Boolean.parseBoolean(value);
                 else if ("pure-az".equals(key)) opts.pureAz = Boolean.parseBoolean(value);
                 else if ("tactical-shortcuts".equals(key)) opts.tacticalShortcuts = Boolean.parseBoolean(value);
                 else if ("advisor-override".equals(key)) opts.advisorOverride = Boolean.parseBoolean(value);
