@@ -13,9 +13,11 @@ import players.osla.OSLAParams;
 import players.osla.OneStepLookAheadAgent;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Random;
@@ -47,6 +49,11 @@ public class AlphaZeroTrainer {
                 + " restoreBestOnRegression=" + opts.restoreBestOnRegression);
         System.out.println("baselineInitialCheckpoint=" + opts.baselineInitialCheckpoint);
         System.out.println("referenceRefreshInterval=" + opts.referenceRefreshInterval);
+        if (!opts.leagueDir.isEmpty()) {
+            System.out.println("leagueDir=" + opts.leagueDir
+                    + " leagueMaxSnapshots=" + opts.leagueMaxSnapshots
+                    + " leagueSnapshotInterval=" + opts.leagueSnapshotInterval);
+        }
         System.out.println("cpuct=" + opts.cpuct + " priorTemperature=" + opts.priorTemperature);
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha);
@@ -92,6 +99,7 @@ public class AlphaZeroTrainer {
                 }
                 bestCheckpoint = CheckpointScore.from(simple, osla, reference);
                 saveBestCheckpoint(opts);
+                saveLeagueSnapshot(opts, "initial", bestCheckpoint);
                 System.out.println(bestCheckpoint.format("initial best checkpoint"));
 
                 boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
@@ -157,6 +165,7 @@ public class AlphaZeroTrainer {
                 if (bestCheckpoint == null || checkpoint.betterThan(bestCheckpoint)) {
                     saveBestCheckpoint(opts);
                     bestCheckpoint = checkpoint;
+                    saveLeagueSnapshot(opts, String.format("iter-%03d-best", iteration), checkpoint);
                     System.out.println(checkpoint.format("best checkpoint updated"));
                 } else if (opts.restoreBestOnRegression) {
                     restoreBestCheckpoint(opts);
@@ -169,6 +178,9 @@ public class AlphaZeroTrainer {
                     refreshReferenceCheckpoint(opts);
                     System.out.printf("refreshed reference checkpoint: iteration=%d interval=%d%n",
                             iteration, opts.referenceRefreshInterval);
+                }
+                if (opts.leagueSnapshotInterval > 0 && iteration % opts.leagueSnapshotInterval == 0) {
+                    saveLeagueSnapshot(opts, String.format("iter-%03d-periodic", iteration), checkpoint);
                 }
 
                 boolean referencePassed = reference == null || reference.winRate() >= opts.targetWinRate;
@@ -228,6 +240,94 @@ public class AlphaZeroTrainer {
         if (!opts.actionPolicyPath.isEmpty() && Files.exists(Path.of(opts.bestActionPolicyPath))) {
             copyFile(opts.bestActionPolicyPath, opts.referenceActionPolicyPath);
         }
+    }
+
+    private static void saveLeagueSnapshot(Options opts, String tag, CheckpointScore score) throws IOException {
+        if (opts.leagueDir == null || opts.leagueDir.trim().isEmpty()) {
+            return;
+        }
+        Path dir = Path.of(opts.leagueDir);
+        Files.createDirectories(dir);
+
+        String base = safeFileName(tag) + "-" + System.currentTimeMillis();
+        Path value = dir.resolve(base + "-value.tsv");
+        Path policy = dir.resolve(base + "-policy.tsv");
+        Path actionPolicy = dir.resolve(base + "-action-policy.tsv");
+
+        copyFile(opts.modelPath, value.toString());
+        copyFile(opts.policyPath, policy.toString());
+        if (!opts.actionPolicyPath.isEmpty() && Files.exists(Path.of(opts.actionPolicyPath))) {
+            copyFile(opts.actionPolicyPath, actionPolicy.toString());
+        }
+
+        JSONObject manifest = new JSONObject();
+        manifest.put("created_at_ms", System.currentTimeMillis());
+        manifest.put("tag", tag);
+        manifest.put("network_type", opts.networkType);
+        manifest.put("value_model", value.getFileName().toString());
+        manifest.put("policy_model", policy.getFileName().toString());
+        if (Files.exists(actionPolicy)) {
+            manifest.put("action_policy_model", actionPolicy.getFileName().toString());
+        }
+        if (score != null) {
+            manifest.put("score", score.score);
+            manifest.put("margin_floor", score.marginFloor);
+            manifest.put("margin_average", score.marginAverage);
+            manifest.put("simple_win_rate", score.simpleWinRate);
+            manifest.put("osla_win_rate", score.oslaWinRate);
+            if (!Double.isNaN(score.referenceWinRate)) {
+                manifest.put("reference_win_rate", score.referenceWinRate);
+                manifest.put("reference_margin", score.referenceMargin);
+            }
+        }
+        Files.write(dir.resolve("league-manifest.jsonl"), (manifest.toString() + "\n").getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        pruneLeagueSnapshots(opts, dir);
+        System.out.printf("saved league snapshot: %s%n", value.getFileName());
+    }
+
+    private static void pruneLeagueSnapshots(Options opts, Path dir) throws IOException {
+        if (opts.leagueMaxSnapshots <= 0) {
+            return;
+        }
+        ArrayList<Path> values = leagueValueFiles(dir);
+        values.sort((a, b) -> {
+            try {
+                return Files.getLastModifiedTime(a).compareTo(Files.getLastModifiedTime(b));
+            } catch (IOException e) {
+                return a.getFileName().toString().compareTo(b.getFileName().toString());
+            }
+        });
+        while (values.size() > opts.leagueMaxSnapshots) {
+            Path value = values.remove(0);
+            String base = stripSuffix(value.getFileName().toString(), "-value.tsv");
+            Files.deleteIfExists(value);
+            Files.deleteIfExists(dir.resolve(base + "-policy.tsv"));
+            Files.deleteIfExists(dir.resolve(base + "-action-policy.tsv"));
+        }
+    }
+
+    private static ArrayList<Path> leagueValueFiles(Path dir) throws IOException {
+        ArrayList<Path> values = new ArrayList<>();
+        if (!Files.isDirectory(dir)) {
+            return values;
+        }
+        try (java.util.stream.Stream<Path> stream = Files.list(dir)) {
+            stream.filter(path -> path.getFileName().toString().endsWith("-value.tsv"))
+                    .forEach(values::add);
+        }
+        return values;
+    }
+
+    private static String safeFileName(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "snapshot";
+        }
+        return value.replaceAll("[^A-Za-z0-9_.-]", "_");
+    }
+
+    private static String stripSuffix(String value, String suffix) {
+        return value.endsWith(suffix) ? value.substring(0, value.length() - suffix.length()) : value;
     }
 
     private static void copyFileIfConfigured(String source, String target) throws IOException {
@@ -351,6 +451,9 @@ public class AlphaZeroTrainer {
         obj.put("disagreement_heuristic_blend", opts.disagreementHeuristicBlend);
         obj.put("disagreement_heuristic_threshold", opts.disagreementHeuristicThreshold);
         obj.put("reference_refresh_interval", opts.referenceRefreshInterval);
+        obj.put("league_dir", opts.leagueDir);
+        obj.put("league_max_snapshots", opts.leagueMaxSnapshots);
+        obj.put("league_snapshot_interval", opts.leagueSnapshotInterval);
 
         JSONArray bots = new JSONArray();
         for (String bot : setup.bots) {
@@ -528,6 +631,9 @@ public class AlphaZeroTrainer {
         if ("REFERENCE_AZ".equalsIgnoreCase(name)) {
             return newReferenceAlphaZero(seed, opts);
         }
+        if ("LEAGUE_AZ".equalsIgnoreCase(name)) {
+            return newLeagueAlphaZero(seed, opts);
+        }
         if ("SIMPLE".equalsIgnoreCase(name)) {
             return new SimpleAgent(seed);
         }
@@ -582,10 +688,26 @@ public class AlphaZeroTrainer {
     }
 
     private static AlphaZeroAgent newReferenceAlphaZero(long seed, Options opts) {
+        return newReferenceAlphaZero(seed, opts, opts.referenceModelPath, opts.referencePolicyPath,
+                opts.referenceActionPolicyPath);
+    }
+
+    private static AlphaZeroAgent newLeagueAlphaZero(long seed, Options opts) {
+        LeagueSnapshot snapshot = selectLeagueSnapshot(opts, seed);
+        if (snapshot == null) {
+            return newReferenceAlphaZero(seed, opts);
+        }
+        return newReferenceAlphaZero(seed, opts, snapshot.valuePath, snapshot.policyPath,
+                snapshot.actionPolicyPath);
+    }
+
+    private static AlphaZeroAgent newReferenceAlphaZero(long seed, Options opts,
+                                                       String valuePath, String policyPath,
+                                                       String actionPolicyPath) {
         AZParams params = new AZParams();
-        params.modelPath = opts.referenceModelPath;
-        params.policyPath = opts.referencePolicyPath;
-        params.actionPolicyPath = opts.referenceActionPolicyPath;
+        params.modelPath = valuePath;
+        params.policyPath = policyPath;
+        params.actionPolicyPath = actionPolicyPath;
         params.networkType = opts.referenceNetworkType.isEmpty() ? opts.networkType : opts.referenceNetworkType;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
@@ -612,6 +734,47 @@ public class AlphaZeroTrainer {
         params.visitSamplingTemperature = 0.0;
         params.visitSamplingUntilTick = opts.visitSamplingUntilTick;
         return new AlphaZeroAgent(seed, params);
+    }
+
+    private static LeagueSnapshot selectLeagueSnapshot(Options opts, long seed) {
+        if (opts.leagueDir == null || opts.leagueDir.trim().isEmpty()) {
+            return null;
+        }
+        Path dir = Path.of(opts.leagueDir);
+        ArrayList<Path> values;
+        try {
+            values = leagueValueFiles(dir);
+        } catch (IOException e) {
+            return null;
+        }
+        ArrayList<LeagueSnapshot> snapshots = new ArrayList<>();
+        for (Path value : values) {
+            String base = stripSuffix(value.getFileName().toString(), "-value.tsv");
+            Path policy = dir.resolve(base + "-policy.tsv");
+            if (!Files.exists(policy)) {
+                continue;
+            }
+            Path actionPolicy = dir.resolve(base + "-action-policy.tsv");
+            snapshots.add(new LeagueSnapshot(value.toString(), policy.toString(),
+                    Files.exists(actionPolicy) ? actionPolicy.toString() : opts.referenceActionPolicyPath));
+        }
+        if (snapshots.isEmpty()) {
+            return null;
+        }
+        Random rnd = new Random(seed ^ 0xA0761D6478BD642FL);
+        return snapshots.get(rnd.nextInt(snapshots.size()));
+    }
+
+    private static class LeagueSnapshot {
+        final String valuePath;
+        final String policyPath;
+        final String actionPolicyPath;
+
+        LeagueSnapshot(String valuePath, String policyPath, String actionPolicyPath) {
+            this.valuePath = valuePath;
+            this.policyPath = policyPath;
+            this.actionPolicyPath = actionPolicyPath;
+        }
     }
 
     private static class GameSetup {
@@ -837,6 +1000,7 @@ public class AlphaZeroTrainer {
         String referenceModelPath = "models/alphazero-value.tsv";
         String referencePolicyPath = "models/alphazero-policy.tsv";
         String referenceActionPolicyPath = "";
+        String leagueDir = "";
         String trainingOpponentsCsv = "SIMPLE,OSLA,AZ";
         String valueRecordingBotsCsv = "ALL";
         String policyTargetMode = "action";
@@ -861,6 +1025,8 @@ public class AlphaZeroTrainer {
         int trajectoryFlushEvery = 64;
         int referenceSearchFmCalls = 0;
         int referenceRefreshInterval = 0;
+        int leagueMaxSnapshots = 8;
+        int leagueSnapshotInterval = 0;
         double learningRate = 0.015;
         double policyLearningRate = 0.010;
         double l2 = 0.0001;
@@ -933,6 +1099,7 @@ public class AlphaZeroTrainer {
                 else if ("reference-model".equals(key)) opts.referenceModelPath = value;
                 else if ("reference-policy".equals(key)) opts.referencePolicyPath = value;
                 else if ("reference-action-policy".equals(key)) opts.referenceActionPolicyPath = value;
+                else if ("league-dir".equals(key)) opts.leagueDir = value;
                 else if ("training-opponents".equals(key)) opts.trainingOpponentsCsv = value;
                 else if ("value-recording-bots".equals(key)) opts.valueRecordingBotsCsv = value;
                 else if ("policy-targets".equals(key)) opts.policyTargetMode = value;
@@ -959,6 +1126,8 @@ public class AlphaZeroTrainer {
                 else if ("trajectory-flush-every".equals(key)) opts.trajectoryFlushEvery = Integer.parseInt(value);
                 else if ("reference-calls".equals(key)) opts.referenceSearchFmCalls = Integer.parseInt(value);
                 else if ("reference-refresh-interval".equals(key)) opts.referenceRefreshInterval = Integer.parseInt(value);
+                else if ("league-max-snapshots".equals(key)) opts.leagueMaxSnapshots = Integer.parseInt(value);
+                else if ("league-snapshot-interval".equals(key)) opts.leagueSnapshotInterval = Integer.parseInt(value);
                 else if ("lr".equals(key)) opts.learningRate = Double.parseDouble(value);
                 else if ("policy-lr".equals(key)) opts.policyLearningRate = Double.parseDouble(value);
                 else if ("l2".equals(key)) opts.l2 = Double.parseDouble(value);
@@ -1049,6 +1218,8 @@ public class AlphaZeroTrainer {
             maxPlayers = Math.max(minPlayers, Math.min(Types.TRIBE.values().length, maxPlayers));
             rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
             survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
+            leagueMaxSnapshots = Math.max(0, leagueMaxSnapshots);
+            leagueSnapshotInterval = Math.max(0, leagueSnapshotInterval);
         }
 
         private static String derivedBestPath(String path) {
