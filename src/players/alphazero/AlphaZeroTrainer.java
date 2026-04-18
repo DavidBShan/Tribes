@@ -69,7 +69,9 @@ public class AlphaZeroTrainer {
         System.out.println("randomTribes=" + opts.randomTribes
                 + " randomPlayerCount=" + opts.randomPlayerCount
                 + " playerRange=" + opts.minPlayers + "-" + opts.maxPlayers
+                + " stratifiedTrainingPlayerCounts=" + opts.stratifiedTrainingPlayerCounts
                 + " stratifiedEvalPlayerCounts=" + opts.stratifiedEvalPlayerCounts);
+        System.out.println("trainingOpponentMode=" + opts.trainingOpponentMode);
         System.out.println("valuePositionBlend=" + opts.valuePositionBlend
                 + " terminalPositionBlend=" + opts.terminalPositionBlend
                 + " rankValueBlend=" + opts.rankValueBlend
@@ -391,7 +393,9 @@ public class AlphaZeroTrainer {
             }
 
             int episode = trainingEpisode(opts, iteration, gameIdx);
-            GameSetup gameSetup = trainingSetup(opts, seed, opponent, selfPlayOnly);
+            int forcedPlayerCount = opts.stratifiedTrainingPlayerCounts
+                    ? opts.trainingPlayerCountForIndex(gameIdx) : 0;
+            GameSetup gameSetup = trainingSetup(opts, seed, opponent, selfPlayOnly, forcedPlayerCount);
             JSONObject setup = setupMetadata(opts, iteration, gameIdx, episode, levelSeed, gameSeed,
                     gameSetup, "train");
             ArrayList<Agent> players = new ArrayList<>();
@@ -433,6 +437,7 @@ public class AlphaZeroTrainer {
                 MapSnapshotWriter.fileName(mapSplit, episode, gameIdx, levelSeed, gameSeed));
         obj.put("random_tribes", opts.randomTribes);
         obj.put("random_player_count", opts.randomPlayerCount);
+        obj.put("stratified_training_player_counts", opts.stratifiedTrainingPlayerCounts);
         obj.put("stratified_eval_player_counts", opts.stratifiedEvalPlayerCounts);
         obj.put("value_model", opts.modelPath);
         obj.put("policy_model", opts.policyPath);
@@ -441,6 +446,7 @@ public class AlphaZeroTrainer {
         obj.put("search_depth", opts.searchDepth);
         obj.put("opponent", setup.opponentLabel());
         obj.put("training_opponents", opts.trainingOpponentsCsv);
+        obj.put("training_opponent_mode", opts.trainingOpponentMode);
         obj.put("policy_targets", opts.policyTargetMode);
         obj.put("value_recording_bots", opts.valueRecordingBotsCsv);
         obj.put("policy_logit_weight", opts.policyLogitWeight);
@@ -485,20 +491,33 @@ public class AlphaZeroTrainer {
 
     private static GameSetup trainingSetup(Options opts, long seed, String scheduledOpponent,
                                            boolean selfPlayOnly) {
-        if (!opts.randomPlayerCount && !opts.randomTribes) {
+        return trainingSetup(opts, seed, scheduledOpponent, selfPlayOnly, 0);
+    }
+
+    private static GameSetup trainingSetup(Options opts, long seed, String scheduledOpponent,
+                                           boolean selfPlayOnly, int forcedPlayerCount) {
+        if (forcedPlayerCount <= 0 && !opts.randomPlayerCount && !opts.randomTribes) {
             return new GameSetup(new String[]{"AZ", scheduledOpponent},
                     new Types.TRIBE[]{XIN_XI, IMPERIUS}, 0);
         }
 
         Random rnd = new Random(seed ^ 0x9E3779B97F4A7C15L);
-        int playerCount = opts.randomPlayerCount ? opts.randomPlayerCount(rnd) : 2;
+        int playerCount = forcedPlayerCount > 0 ? forcedPlayerCount
+                : opts.randomPlayerCount ? opts.randomPlayerCount(rnd) : 2;
         Types.TRIBE[] tribes = opts.randomTribes ? randomTribes(playerCount, rnd)
                 : fixedTribes(playerCount);
         String[] bots = new String[playerCount];
         int targetSeat = rnd.nextInt(playerCount);
+        boolean scheduledPlaced = false;
         for (int seat = 0; seat < playerCount; seat++) {
             if (selfPlayOnly || seat == targetSeat) {
                 bots[seat] = "AZ";
+            } else if (opts.useScheduledTrainingOpponentForAllSeats()
+                    || "AZ".equalsIgnoreCase(scheduledOpponent)) {
+                bots[seat] = scheduledOpponent;
+            } else if (opts.useHybridTrainingOpponentMode() && !scheduledPlaced) {
+                bots[seat] = scheduledOpponent;
+                scheduledPlaced = true;
             } else {
                 bots[seat] = opts.randomTrainingOpponent(rnd);
             }
@@ -1164,8 +1183,10 @@ public class AlphaZeroTrainer {
         boolean randomPlayerCount = false;
         int minPlayers = 2;
         int maxPlayers = 2;
+        boolean stratifiedTrainingPlayerCounts = false;
         boolean stratifiedEvalPlayerCounts = false;
         boolean stratifiedEvalPlayerCountsConfigured = false;
+        String trainingOpponentMode = "mixed";
         boolean recordTrajectories = true;
         boolean evalReference = false;
         boolean restoreBestOnRegression = true;
@@ -1269,10 +1290,14 @@ public class AlphaZeroTrainer {
                 else if ("random-player-count".equals(key)) opts.randomPlayerCount = Boolean.parseBoolean(value);
                 else if ("min-players".equals(key)) opts.minPlayers = Integer.parseInt(value);
                 else if ("max-players".equals(key)) opts.maxPlayers = Integer.parseInt(value);
+                else if ("stratified-training-player-counts".equals(key)) {
+                    opts.stratifiedTrainingPlayerCounts = Boolean.parseBoolean(value);
+                }
                 else if ("stratified-eval-player-counts".equals(key)) {
                     opts.stratifiedEvalPlayerCounts = Boolean.parseBoolean(value);
                     opts.stratifiedEvalPlayerCountsConfigured = true;
                 }
+                else if ("training-opponent-mode".equals(key)) opts.trainingOpponentMode = value;
                 else if ("record-trajectories".equals(key)) opts.recordTrajectories = Boolean.parseBoolean(value);
                 else if ("eval-reference".equals(key)) opts.evalReference = Boolean.parseBoolean(value);
                 else if ("restore-best-on-regression".equals(key)) opts.restoreBestOnRegression = Boolean.parseBoolean(value);
@@ -1336,6 +1361,19 @@ public class AlphaZeroTrainer {
             }
             if (stratifiedEvalPlayerCounts) {
                 evalGames = Math.max(evalGames, maxPlayers - minPlayers + 1);
+            }
+            if (stratifiedTrainingPlayerCounts) {
+                gamesPerIteration = Math.max(gamesPerIteration, maxPlayers - minPlayers + 1);
+            }
+            trainingOpponentMode = trainingOpponentMode == null ? "mixed" : trainingOpponentMode.trim();
+            if (trainingOpponentMode.isEmpty()) {
+                trainingOpponentMode = "mixed";
+            }
+            if (!useMixedTrainingOpponentMode()
+                    && !useScheduledTrainingOpponentForAllSeats()
+                    && !useHybridTrainingOpponentMode()) {
+                throw new IllegalArgumentException("Unknown --training-opponent-mode " + trainingOpponentMode
+                        + " (expected mixed, scheduled, or hybrid)");
             }
             rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
             survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
@@ -1410,12 +1448,32 @@ public class AlphaZeroTrainer {
             return minPlayers + rnd.nextInt(maxPlayers - minPlayers + 1);
         }
 
+        int trainingPlayerCountForIndex(int gameIndex) {
+            if (!stratifiedTrainingPlayerCounts) {
+                return 0;
+            }
+            int width = Math.max(1, maxPlayers - minPlayers + 1);
+            return minPlayers + Math.floorMod(gameIndex, width);
+        }
+
         int evalPlayerCountForIndex(int evalIndex) {
             if (!stratifiedEvalPlayerCounts) {
                 return 0;
             }
             int width = Math.max(1, maxPlayers - minPlayers + 1);
             return minPlayers + Math.floorMod(evalIndex, width);
+        }
+
+        boolean useMixedTrainingOpponentMode() {
+            return "mixed".equalsIgnoreCase(trainingOpponentMode);
+        }
+
+        boolean useScheduledTrainingOpponentForAllSeats() {
+            return "scheduled".equalsIgnoreCase(trainingOpponentMode);
+        }
+
+        boolean useHybridTrainingOpponentMode() {
+            return "hybrid".equalsIgnoreCase(trainingOpponentMode);
         }
 
         private static ArrayList<String> csv(String value) {
