@@ -32,11 +32,7 @@ public final class PolicyDataset {
             boolean writeHeader = !file.exists() || file.length() == 0;
             BufferedWriter writer = new BufferedWriter(new FileWriter(file, true));
             if (writeHeader) {
-                writer.write("action");
-                for (int i = 0; i < StateFeatures.FEATURE_COUNT; i++) {
-                    writer.write('\t');
-                    writer.write("f" + i);
-                }
+                writer.write(FeatureInputs.policyHeader(examples.get(0).features.length));
                 writer.newLine();
             }
 
@@ -65,6 +61,10 @@ public final class PolicyDataset {
     }
 
     public static ArrayList<PolicyTrainingExample> load(String path, int maxExamples) {
+        return load(path, maxExamples, StateFeatures.FEATURE_COUNT);
+    }
+
+    public static ArrayList<PolicyTrainingExample> load(String path, int maxExamples, int expectedFeatureCount) {
         ArrayDeque<PolicyTrainingExample> examples = new ArrayDeque<>();
         File file = new File(path);
         if (!file.exists()) {
@@ -80,11 +80,11 @@ public final class PolicyDataset {
                 }
 
                 String[] parts = line.split("\\t");
-                if (parts.length != StateFeatures.FEATURE_COUNT + 1) {
+                if (parts.length != expectedFeatureCount + 1) {
                     continue;
                 }
 
-                double[] features = new double[StateFeatures.FEATURE_COUNT];
+                double[] features = new double[expectedFeatureCount];
                 for (int i = 0; i < features.length; i++) {
                     features[i] = Double.parseDouble(parts[i + 1]);
                 }

@@ -17,6 +17,7 @@ public class RecordingAgent extends Agent {
     private final String policyDatasetPath;
     private final String actionPolicyDatasetPath;
     private final String policyTargetMode;
+    private final String featureMode;
     private final SftTrajectoryWriter trajectoryWriter;
     private final JSONObject setupMetadata;
     private final int episode;
@@ -38,7 +39,8 @@ public class RecordingAgent extends Agent {
     public RecordingAgent(Agent delegate, String datasetPath, String policyDatasetPath,
                           double sampleProbability, int maxExamplesPerGame, long seed) {
         this(delegate, "unknown", datasetPath, policyDatasetPath, null, null, new JSONObject(),
-                -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action", 0.0, 0.0,
+                -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action",
+                ModelFactory.LINEAR, 0.0, 0.0,
                 0.0, 0.0, true, seed);
     }
 
@@ -47,7 +49,8 @@ public class RecordingAgent extends Agent {
                           JSONObject setupMetadata, int episode, int seat,
                           double sampleProbability, int maxExamplesPerGame,
                           double trajectorySampleProbability, int maxTrajectoriesPerGame,
-                          String policyTargetMode, double valuePositionBlend, double terminalPositionBlend,
+                          String policyTargetMode, String featureMode,
+                          double valuePositionBlend, double terminalPositionBlend,
                           double rankValueBlend, double survivalValueBlend,
                           boolean recordValueExamples, long seed) {
         super(seed);
@@ -57,6 +60,7 @@ public class RecordingAgent extends Agent {
         this.policyDatasetPath = policyDatasetPath;
         this.actionPolicyDatasetPath = actionPolicyDatasetPath;
         this.policyTargetMode = policyTargetMode == null ? "action" : policyTargetMode;
+        this.featureMode = featureMode == null ? ModelFactory.LINEAR : featureMode;
         this.trajectoryWriter = trajectoryWriter;
         this.setupMetadata = setupMetadata == null ? new JSONObject() : new JSONObject(setupMetadata.toString());
         this.episode = episode;
@@ -83,7 +87,7 @@ public class RecordingAgent extends Agent {
 
     @Override
     public Action act(GameState gs, ElapsedCpuTimer ect) {
-        double[] features = StateFeatures.extract(gs, playerID, allPlayerIDs);
+        double[] features = FeatureInputs.extract(featureMode, gs, playerID, allPlayerIDs);
         boolean sampled = recordValueExamples
                 && pending.size() < maxExamplesPerGame
                 && rnd.nextDouble() <= sampleProbability;
@@ -185,7 +189,7 @@ public class RecordingAgent extends Agent {
         return new RecordingAgent(delegateCopy, botName, datasetPath, policyDatasetPath, actionPolicyDatasetPath,
                 trajectoryWriter, setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
                 trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode,
-                valuePositionBlend, terminalPositionBlend, rankValueBlend, survivalValueBlend,
+                featureMode, valuePositionBlend, terminalPositionBlend, rankValueBlend, survivalValueBlend,
                 recordValueExamples, seed);
     }
 }

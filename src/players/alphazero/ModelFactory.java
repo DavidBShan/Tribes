@@ -9,6 +9,7 @@ public final class ModelFactory {
     public static final String LINEAR = "linear";
     public static final String NEURAL = "neural";
     public static final String SHARED_NEURAL = "shared-neural";
+    public static final String MAP_NEURAL = "map-neural";
     private static final Map<String, SharedNeuralCore> SHARED_NEURAL_CACHE = new HashMap<>();
 
     private ModelFactory() {
@@ -17,6 +18,9 @@ public final class ModelFactory {
     public static ValueModel loadValue(String type, String path) {
         if (SHARED_NEURAL.equalsIgnoreCase(type)) {
             return new SharedNeuralValueFunction(sharedNeuralCore(path));
+        }
+        if (MAP_NEURAL.equalsIgnoreCase(type)) {
+            return MapNeuralValueFunction.load(path);
         }
         if (NEURAL.equalsIgnoreCase(type)) {
             return NeuralValueFunction.load(path);
@@ -27,6 +31,9 @@ public final class ModelFactory {
     public static PolicyModel loadPolicy(String type, String path) {
         if (SHARED_NEURAL.equalsIgnoreCase(type)) {
             return new SharedNeuralPolicyFunction(sharedNeuralCore(path));
+        }
+        if (MAP_NEURAL.equalsIgnoreCase(type)) {
+            return MapNeuralPolicyFunction.load(path);
         }
         if (NEURAL.equalsIgnoreCase(type)) {
             return NeuralPolicyFunction.load(path);

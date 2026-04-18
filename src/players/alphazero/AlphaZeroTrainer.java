@@ -141,9 +141,11 @@ public class AlphaZeroTrainer {
                 runTrainingGames(opts, iteration,
                         opts.selfPlayOnly || (targetReached && opts.selfPlayAfterTarget), trajectoryWriter);
 
-                ArrayList<ValueTrainingExample> examples = ValueDataset.load(opts.dataPath, opts.maxTrainingExamples);
+                int expectedFeatureCount = FeatureInputs.featureCount(opts.networkType);
+                ArrayList<ValueTrainingExample> examples =
+                        ValueDataset.load(opts.dataPath, opts.maxTrainingExamples, expectedFeatureCount);
                 ArrayList<PolicyTrainingExample> policyExamples =
-                        PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples);
+                        PolicyDataset.load(opts.policyDataPath, opts.maxTrainingExamples, expectedFeatureCount);
                 if (ModelFactory.isSharedNeural(opts.networkType)) {
                     SharedNeuralCore core = ModelFactory.loadSharedNeuralCore(opts.modelPath);
                     SharedNeuralCore.TrainingResult loss = core.trainJoint(examples, policyExamples,
@@ -642,7 +644,7 @@ public class AlphaZeroTrainer {
         return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, opts.actionPolicyDataPath,
                 trajectoryWriter, setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
                 opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
-                opts.valuePositionBlend, opts.terminalPositionBlend, opts.rankValueBlend,
+                opts.networkType, opts.valuePositionBlend, opts.terminalPositionBlend, opts.rankValueBlend,
                 opts.survivalValueBlend, opts.shouldRecordValueFor(botName), seed);
     }
 

@@ -30,7 +30,7 @@ public final class ValueDataset {
             boolean writeHeader = !file.exists() || file.length() == 0;
             BufferedWriter writer = new BufferedWriter(new FileWriter(file, true));
             if (writeHeader) {
-                writer.write(StateFeatures.header());
+                writer.write(FeatureInputs.header(examples.get(0).features.length));
                 writer.newLine();
             }
 
@@ -49,6 +49,10 @@ public final class ValueDataset {
     }
 
     public static ArrayList<ValueTrainingExample> load(String path, int maxExamples) {
+        return load(path, maxExamples, StateFeatures.FEATURE_COUNT);
+    }
+
+    public static ArrayList<ValueTrainingExample> load(String path, int maxExamples, int expectedFeatureCount) {
         ArrayDeque<ValueTrainingExample> examples = new ArrayDeque<>();
         File file = new File(path);
         if (!file.exists()) {
@@ -64,12 +68,12 @@ public final class ValueDataset {
                 }
 
                 String[] parts = line.split("\\t");
-                if (parts.length != StateFeatures.FEATURE_COUNT + 1) {
+                if (parts.length != expectedFeatureCount + 1) {
                     continue;
                 }
 
                 double label = Double.parseDouble(parts[0]);
-                double[] features = new double[StateFeatures.FEATURE_COUNT];
+                double[] features = new double[expectedFeatureCount];
                 for (int i = 0; i < features.length; i++) {
                     features[i] = Double.parseDouble(parts[i + 1]);
                 }
