@@ -42,6 +42,8 @@ public final class ActionPolicyDataset {
                 if (example.features == null || example.features.length != featureCount) {
                     continue;
                 }
+                writer.write(Long.toString(example.groupId));
+                writer.write('\t');
                 writer.write(Double.toString(example.target));
                 for (double feature : example.features) {
                     writer.write('\t');
@@ -73,21 +75,25 @@ public final class ActionPolicyDataset {
             BufferedReader reader = new BufferedReader(new FileReader(file));
             String line;
             while ((line = reader.readLine()) != null) {
-                if (line.trim().isEmpty() || line.startsWith("target")) {
+                if (line.trim().isEmpty() || line.startsWith("target") || line.startsWith("group")) {
                     continue;
                 }
 
                 String[] parts = line.split("\\t");
-                if (parts.length != expectedFeatureCount + 1) {
+                if (parts.length != expectedFeatureCount + 1 && parts.length != expectedFeatureCount + 2) {
                     continue;
                 }
 
-                double target = Double.parseDouble(parts[0]);
+                boolean hasGroup = parts.length == expectedFeatureCount + 2;
+                long groupId = hasGroup ? Long.parseLong(parts[0]) : ActionPolicyTrainingExample.NO_GROUP;
+                int targetIndex = hasGroup ? 1 : 0;
+                int featureOffset = targetIndex + 1;
                 double[] features = new double[expectedFeatureCount];
                 for (int i = 0; i < features.length; i++) {
-                    features[i] = Double.parseDouble(parts[i + 1]);
+                    features[i] = Double.parseDouble(parts[i + featureOffset]);
                 }
-                examples.addLast(new ActionPolicyTrainingExample(target, features));
+                examples.addLast(new ActionPolicyTrainingExample(
+                        Double.parseDouble(parts[targetIndex]), features, groupId));
 
                 if (maxExamples > 0 && examples.size() > maxExamples) {
                     examples.removeFirst();
@@ -112,12 +118,13 @@ public final class ActionPolicyDataset {
 
     private static String header(int featureCount) {
         if (featureCount == MapActionFeatures.FEATURE_COUNT) {
-            return MapActionFeatures.header();
+            return "group\t" + MapActionFeatures.header();
         }
         if (featureCount == ActionFeatures.FEATURE_COUNT) {
-            return ActionFeatures.header();
+            return "group\t" + ActionFeatures.header();
         }
         StringBuilder sb = new StringBuilder("target");
+        sb.insert(0, "group\t");
         for (int i = 0; i < featureCount; i++) {
             sb.append('\t').append("apf").append(i);
         }

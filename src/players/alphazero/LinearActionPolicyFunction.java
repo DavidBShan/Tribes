@@ -47,6 +47,12 @@ public class LinearActionPolicyFunction implements ActionPolicyModel {
         }
 
         Random rnd = new Random(seed);
+        ArrayList<ArrayList<ActionPolicyTrainingExample>> groups =
+                ActionPolicyTrainingExample.groupedBatches(examples, weights.length);
+        if (!groups.isEmpty()) {
+            return trainGrouped(groups, epochs, learningRate, l2, rnd);
+        }
+
         double lastLoss = Double.NaN;
         for (int epoch = 0; epoch < epochs; epoch++) {
             Collections.shuffle(examples, rnd);
@@ -71,6 +77,54 @@ public class LinearActionPolicyFunction implements ActionPolicyModel {
         }
         trained = true;
         return lastLoss;
+    }
+
+    private double trainGrouped(ArrayList<ArrayList<ActionPolicyTrainingExample>> groups, int epochs,
+                                double learningRate, double l2, Random rnd) {
+        double lastLoss = Double.NaN;
+        for (int epoch = 0; epoch < epochs; epoch++) {
+            Collections.shuffle(groups, rnd);
+            double loss = 0.0;
+            int used = 0;
+            for (ArrayList<ActionPolicyTrainingExample> group : groups) {
+                loss += updateGroup(group, learningRate, l2);
+                used++;
+            }
+            lastLoss = used == 0 ? Double.NaN : loss / used;
+        }
+        trained = true;
+        return lastLoss;
+    }
+
+    private double updateGroup(ArrayList<ActionPolicyTrainingExample> group,
+                               double learningRate, double l2) {
+        double max = -Double.MAX_VALUE;
+        double[] logits = new double[group.size()];
+        for (int i = 0; i < group.size(); i++) {
+            logits[i] = dot(group.get(i).features);
+            max = Math.max(max, logits[i]);
+        }
+
+        double sum = 0.0;
+        for (int i = 0; i < logits.length; i++) {
+            logits[i] = Math.exp(logits[i] - max);
+            sum += logits[i];
+        }
+
+        double targetSum = ActionPolicyTrainingExample.targetSum(group);
+        double loss = 0.0;
+        for (int i = 0; i < group.size(); i++) {
+            ActionPolicyTrainingExample example = group.get(i);
+            double prediction = sum > 0.0 ? logits[i] / sum : 1.0 / group.size();
+            double target = targetSum > 0.0 ? example.target / targetSum : 1.0 / group.size();
+            loss += -target * Math.log(Math.max(1e-9, prediction));
+            double error = prediction - target;
+            for (int f = 0; f < weights.length; f++) {
+                double grad = error * example.features[f] + l2 * weights[f];
+                weights[f] -= learningRate * grad;
+            }
+        }
+        return loss;
     }
 
     private double dot(double[] features) {

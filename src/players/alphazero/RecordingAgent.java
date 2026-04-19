@@ -111,6 +111,7 @@ public class RecordingAgent extends Agent {
                     ? alphaZero.lastImprovedActionPolicyExamples()
                     : alphaZero.lastActionPolicyExamples();
             actionPolicyExamples = cappedActionPolicyExamples(actionPolicyExamples);
+            actionPolicyExamples = groupedActionPolicyExamples(actionPolicyExamples);
             ActionPolicyDataset.append(actionPolicyDatasetPath, actionPolicyExamples);
         }
         if (shouldRecordTrajectory() && action != null) {
@@ -174,6 +175,27 @@ public class RecordingAgent extends Agent {
         }
         actionPolicyExamplesWritten += capped.size();
         return capped;
+    }
+
+    private ArrayList<ActionPolicyTrainingExample> groupedActionPolicyExamples(
+            ArrayList<ActionPolicyTrainingExample> examples) {
+        if (examples == null || examples.isEmpty()) {
+            return new ArrayList<>();
+        }
+        long groupId = actionPolicyGroupId();
+        ArrayList<ActionPolicyTrainingExample> grouped = new ArrayList<>();
+        for (ActionPolicyTrainingExample example : examples) {
+            grouped.add(example.withGroup(groupId));
+        }
+        return grouped;
+    }
+
+    private long actionPolicyGroupId() {
+        long safeEpisode = Math.max(0, episode);
+        long safeSeat = Math.max(0, seat);
+        return (safeEpisode << 32)
+                ^ ((safeSeat & 0xffffL) << 16)
+                ^ (localActionIndex & 0xffffL);
     }
 
     private boolean shouldRecordPolicyExample() {

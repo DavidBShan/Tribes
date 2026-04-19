@@ -147,6 +147,23 @@ final class MapSharedNeuralCore {
         return lastLoss;
     }
 
+    private double trainActionGrouped(ArrayList<ArrayList<ActionPolicyTrainingExample>> groups,
+                                      int epochs, double learningRate, double l2, Random rnd) {
+        double lastLoss = Double.NaN;
+        for (int epoch = 0; epoch < epochs; epoch++) {
+            Collections.shuffle(groups, rnd);
+            double loss = 0.0;
+            int used = 0;
+            for (ArrayList<ActionPolicyTrainingExample> group : groups) {
+                loss += updateActionGroup(group, learningRate, l2);
+                used++;
+            }
+            lastLoss = used == 0 ? Double.NaN : loss / used;
+        }
+        trained = true;
+        return lastLoss;
+    }
+
     double trainPolicy(ArrayList<PolicyTrainingExample> examples, int epochs,
                        double learningRate, double l2, long seed) {
         if (examples == null || examples.isEmpty()) {
@@ -180,6 +197,12 @@ final class MapSharedNeuralCore {
         }
 
         Random rnd = new Random(seed);
+        ArrayList<ArrayList<ActionPolicyTrainingExample>> groups =
+                ActionPolicyTrainingExample.groupedBatches(examples, ACTION_INPUTS);
+        if (!groups.isEmpty()) {
+            return trainActionGrouped(groups, epochs, learningRate, l2, rnd);
+        }
+
         double lastLoss = Double.NaN;
         for (int epoch = 0; epoch < epochs; epoch++) {
             Collections.shuffle(examples, rnd);
@@ -271,6 +294,41 @@ final class MapSharedNeuralCore {
         double loss = -(example.target * Math.log(Math.max(1e-9, prediction))
                 + (1.0 - example.target) * Math.log(Math.max(1e-9, 1.0 - prediction)));
 
+        updateActionWithGradient(fwd, error, learningRate, l2);
+        return loss;
+    }
+
+    private double updateActionGroup(ArrayList<ActionPolicyTrainingExample> group,
+                                     double learningRate, double l2) {
+        double max = -Double.MAX_VALUE;
+        ActionForward[] forwards = new ActionForward[group.size()];
+        double[] logits = new double[group.size()];
+        for (int i = 0; i < group.size(); i++) {
+            forwards[i] = actionForward(group.get(i).features);
+            logits[i] = forwards[i].logit;
+            max = Math.max(max, logits[i]);
+        }
+
+        double sum = 0.0;
+        for (int i = 0; i < logits.length; i++) {
+            logits[i] = Math.exp(logits[i] - max);
+            sum += logits[i];
+        }
+
+        double targetSum = ActionPolicyTrainingExample.targetSum(group);
+        double loss = 0.0;
+        for (int i = 0; i < group.size(); i++) {
+            ActionPolicyTrainingExample example = group.get(i);
+            double prediction = sum > 0.0 ? logits[i] / sum : 1.0 / group.size();
+            double target = targetSum > 0.0 ? example.target / targetSum : 1.0 / group.size();
+            loss += -target * Math.log(Math.max(1e-9, prediction));
+            updateActionWithGradient(forwards[i], prediction - target, learningRate, l2);
+        }
+        return loss;
+    }
+
+    private void updateActionWithGradient(ActionForward fwd, double error,
+                                          double learningRate, double l2) {
         double[] oldActionOutW = actionOutW.clone();
         double[][] oldActionStateW = copy(actionStateW);
         for (int k = 0; k < actionHiddenSize; k++) {
@@ -306,7 +364,6 @@ final class MapSharedNeuralCore {
             }
             stateB[j] -= learningRate * dhState;
         }
-        return loss;
     }
 
     void rememberValuePath(String path) {
