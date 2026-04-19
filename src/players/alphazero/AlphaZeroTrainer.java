@@ -285,6 +285,7 @@ public class AlphaZeroTrainer {
         if (!opts.actionPolicyPath.isEmpty() && Files.exists(Path.of(opts.bestActionPolicyPath))) {
             copyFile(opts.bestActionPolicyPath, opts.actionPolicyPath);
         }
+        ModelFactory.clearCaches();
     }
 
     private static void refreshReferenceCheckpoint(Options opts) throws IOException {
@@ -297,6 +298,7 @@ public class AlphaZeroTrainer {
         if (!opts.actionPolicyPath.isEmpty() && Files.exists(Path.of(opts.bestActionPolicyPath))) {
             copyFile(opts.bestActionPolicyPath, opts.referenceActionPolicyPath);
         }
+        ModelFactory.clearCaches();
     }
 
     private static void saveLeagueSnapshot(Options opts, String tag, CheckpointScore score) throws IOException {

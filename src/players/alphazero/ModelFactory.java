@@ -71,10 +71,13 @@ public final class ModelFactory {
         return sharedNeuralCore(path);
     }
 
+    public static synchronized void clearCaches() {
+        SHARED_NEURAL_CACHE.clear();
+        MAP_SHARED_NEURAL_CACHE.clear();
+    }
+
     private static synchronized SharedNeuralCore sharedNeuralCore(String path) {
-        File file = new File(path);
-        File parent = file.getAbsoluteFile().getParentFile();
-        String key = parent == null ? file.getAbsolutePath() : parent.getAbsolutePath();
+        String key = modelGroupKey(path);
         SharedNeuralCore core = SHARED_NEURAL_CACHE.get(key);
         if (core == null) {
             core = SharedNeuralCore.load(path);
@@ -84,14 +87,28 @@ public final class ModelFactory {
     }
 
     private static synchronized MapSharedNeuralCore mapSharedNeuralCore(String path) {
-        File file = new File(path);
-        File parent = file.getAbsoluteFile().getParentFile();
-        String key = parent == null ? file.getAbsolutePath() : parent.getAbsolutePath();
+        String key = modelGroupKey(path);
         MapSharedNeuralCore core = MAP_SHARED_NEURAL_CACHE.get(key);
         if (core == null) {
             core = MapSharedNeuralCore.load(path);
             MAP_SHARED_NEURAL_CACHE.put(key, core);
         }
         return core;
+    }
+
+    private static String modelGroupKey(String path) {
+        File file = new File(path == null ? "" : path);
+        String key = file.getAbsolutePath();
+        String[] suffixes = {
+                "-action-policy.tsv",
+                "-policy.tsv",
+                "-value.tsv"
+        };
+        for (String suffix : suffixes) {
+            if (key.endsWith(suffix)) {
+                return key.substring(0, key.length() - suffix.length());
+            }
+        }
+        return key;
     }
 }
