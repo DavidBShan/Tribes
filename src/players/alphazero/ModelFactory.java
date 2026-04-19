@@ -46,6 +46,9 @@ public final class ModelFactory {
     }
 
     public static ActionPolicyModel loadActionPolicy(String type, String path) {
+        if (MAP_NEURAL.equalsIgnoreCase(type)) {
+            return NeuralActionPolicyFunction.load(type, path);
+        }
         return LinearActionPolicyFunction.load(type, path);
     }
 
