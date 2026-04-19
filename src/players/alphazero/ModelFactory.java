@@ -45,6 +45,10 @@ public final class ModelFactory {
         return LinearActionPolicyFunction.load(path);
     }
 
+    public static ActionPolicyModel loadActionPolicy(String type, String path) {
+        return LinearActionPolicyFunction.load(type, path);
+    }
+
     public static boolean isSharedNeural(String type) {
         return SHARED_NEURAL.equalsIgnoreCase(type);
     }

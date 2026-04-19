@@ -193,8 +193,9 @@ public class AlphaZeroTrainer {
 
                 if (!opts.actionPolicyPath.isEmpty()) {
                     ArrayList<ActionPolicyTrainingExample> actionPolicyExamples =
-                            ActionPolicyDataset.load(opts.actionPolicyDataPath, opts.maxTrainingExamples);
-                    ActionPolicyModel actionPolicy = ModelFactory.loadActionPolicy(opts.actionPolicyPath);
+                            ActionPolicyDataset.load(opts.actionPolicyDataPath, opts.maxTrainingExamples,
+                                    ActionFeatureInputs.featureCount(opts.networkType));
+                    ActionPolicyModel actionPolicy = ModelFactory.loadActionPolicy(opts.networkType, opts.actionPolicyPath);
                     if (!actionPolicyExamples.isEmpty()) {
                         double actionPolicyLoss = actionPolicy.train(actionPolicyExamples, opts.policyEpochs,
                                 opts.policyLearningRate, opts.l2, opts.seed + 1999L * iteration);

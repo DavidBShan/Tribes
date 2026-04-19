@@ -27,15 +27,19 @@ public final class ActionPolicyDataset {
                 parent.mkdirs();
             }
 
+            int featureCount = featureCount(examples);
+            if (featureCount <= 0) {
+                return;
+            }
             boolean writeHeader = !file.exists() || file.length() == 0;
             BufferedWriter writer = new BufferedWriter(new FileWriter(file, true));
             if (writeHeader) {
-                writer.write(ActionFeatures.header());
+                writer.write(header(featureCount));
                 writer.newLine();
             }
 
             for (ActionPolicyTrainingExample example : examples) {
-                if (example.features == null || example.features.length != ActionFeatures.FEATURE_COUNT) {
+                if (example.features == null || example.features.length != featureCount) {
                     continue;
                 }
                 writer.write(Double.toString(example.target));
@@ -52,6 +56,10 @@ public final class ActionPolicyDataset {
     }
 
     public static ArrayList<ActionPolicyTrainingExample> load(String path, int maxExamples) {
+        return load(path, maxExamples, ActionFeatures.FEATURE_COUNT);
+    }
+
+    public static ArrayList<ActionPolicyTrainingExample> load(String path, int maxExamples, int expectedFeatureCount) {
         ArrayDeque<ActionPolicyTrainingExample> examples = new ArrayDeque<>();
         if (path == null || path.trim().isEmpty()) {
             return new ArrayList<>();
@@ -70,12 +78,12 @@ public final class ActionPolicyDataset {
                 }
 
                 String[] parts = line.split("\\t");
-                if (parts.length != ActionFeatures.FEATURE_COUNT + 1) {
+                if (parts.length != expectedFeatureCount + 1) {
                     continue;
                 }
 
                 double target = Double.parseDouble(parts[0]);
-                double[] features = new double[ActionFeatures.FEATURE_COUNT];
+                double[] features = new double[expectedFeatureCount];
                 for (int i = 0; i < features.length; i++) {
                     features[i] = Double.parseDouble(parts[i + 1]);
                 }
@@ -91,5 +99,28 @@ public final class ActionPolicyDataset {
         }
 
         return new ArrayList<>(examples);
+    }
+
+    private static int featureCount(List<ActionPolicyTrainingExample> examples) {
+        for (ActionPolicyTrainingExample example : examples) {
+            if (example.features != null && example.features.length > 0) {
+                return example.features.length;
+            }
+        }
+        return 0;
+    }
+
+    private static String header(int featureCount) {
+        if (featureCount == MapActionFeatures.FEATURE_COUNT) {
+            return MapActionFeatures.header();
+        }
+        if (featureCount == ActionFeatures.FEATURE_COUNT) {
+            return ActionFeatures.header();
+        }
+        StringBuilder sb = new StringBuilder("target");
+        for (int i = 0; i < featureCount; i++) {
+            sb.append('\t').append("apf").append(i);
+        }
+        return sb.toString();
     }
 }

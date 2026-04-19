@@ -16,10 +16,16 @@ import java.util.Random;
 public class LinearActionPolicyFunction implements ActionPolicyModel {
 
     private final double[] weights;
+    private final String networkType;
     private boolean trained;
 
     public LinearActionPolicyFunction() {
-        this.weights = new double[ActionFeatures.FEATURE_COUNT];
+        this(ModelFactory.LINEAR);
+    }
+
+    private LinearActionPolicyFunction(String networkType) {
+        this.networkType = networkType == null ? ModelFactory.LINEAR : networkType;
+        this.weights = new double[ActionFeatureInputs.featureCount(this.networkType)];
         this.trained = false;
     }
 
@@ -30,7 +36,7 @@ public class LinearActionPolicyFunction implements ActionPolicyModel {
 
     @Override
     public double logit(GameState state, GameState nextState, int playerID, ArrayList<Integer> allIds, Action action) {
-        return dot(ActionFeatures.extract(state, nextState, playerID, allIds, action));
+        return dot(ActionFeatureInputs.extract(networkType, state, nextState, playerID, allIds, action));
     }
 
     @Override
@@ -85,7 +91,11 @@ public class LinearActionPolicyFunction implements ActionPolicyModel {
     }
 
     public static LinearActionPolicyFunction load(String path) {
-        LinearActionPolicyFunction fn = new LinearActionPolicyFunction();
+        return load(ModelFactory.LINEAR, path);
+    }
+
+    public static LinearActionPolicyFunction load(String networkType, String path) {
+        LinearActionPolicyFunction fn = new LinearActionPolicyFunction(networkType);
         if (path == null || path.trim().isEmpty()) {
             return fn;
         }
@@ -134,6 +144,10 @@ public class LinearActionPolicyFunction implements ActionPolicyModel {
 
             BufferedWriter writer = new BufferedWriter(new FileWriter(file));
             writer.write("# Linear Polytopia legal-action policy model");
+            writer.newLine();
+            writer.write("# networkType\t" + networkType);
+            writer.newLine();
+            writer.write("# features\t" + weights.length);
             writer.newLine();
             for (int i = 0; i < weights.length; i++) {
                 if (i > 0) {

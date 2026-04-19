@@ -23,8 +23,8 @@ import java.util.ArrayList;
 
 public final class ActionFeatures {
 
-    private static final int ACTION_COUNT = Types.ACTION.values().length;
-    private static final int EXTRA_COUNT = 24;
+    static final int ACTION_COUNT = Types.ACTION.values().length;
+    static final int EXTRA_COUNT = 24;
     public static final int FEATURE_COUNT = StateFeatures.FEATURE_COUNT + ACTION_COUNT
             + StateFeatures.FEATURE_COUNT + EXTRA_COUNT;
 
@@ -63,8 +63,8 @@ public final class ActionFeatures {
         return offset;
     }
 
-    private static void fillExtras(double[] out, int offset, GameState state, GameState nextState,
-                                   int playerID, ArrayList<Integer> allIds, Action action) {
+    static void fillExtras(double[] out, int offset, GameState state, GameState nextState,
+                           int playerID, ArrayList<Integer> allIds, Action action) {
         if (action == null) {
             return;
         }
