@@ -7,6 +7,8 @@ import players.Agent;
 import utils.ElapsedCpuTimer;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Random;
 
 public class RecordingAgent extends Agent {
@@ -35,6 +37,7 @@ public class RecordingAgent extends Agent {
     private final Random trajectoryRnd;
     private final ArrayList<ValueTrainingExample> pending;
     private int localActionIndex = 0;
+    private int actionPolicyExamplesWritten = 0;
 
     public RecordingAgent(Agent delegate, String datasetPath, String policyDatasetPath,
                           double sampleProbability, int maxExamplesPerGame, long seed) {
@@ -107,6 +110,7 @@ public class RecordingAgent extends Agent {
             ArrayList<ActionPolicyTrainingExample> actionPolicyExamples = useImprovedPolicyTargets()
                     ? alphaZero.lastImprovedActionPolicyExamples()
                     : alphaZero.lastActionPolicyExamples();
+            actionPolicyExamples = cappedActionPolicyExamples(actionPolicyExamples);
             ActionPolicyDataset.append(actionPolicyDatasetPath, actionPolicyExamples);
         }
         if (shouldRecordTrajectory() && action != null) {
@@ -140,6 +144,36 @@ public class RecordingAgent extends Agent {
         return "improved".equalsIgnoreCase(policyTargetMode)
                 || "value".equalsIgnoreCase(policyTargetMode)
                 || "gumbel".equalsIgnoreCase(policyTargetMode);
+    }
+
+    private ArrayList<ActionPolicyTrainingExample> cappedActionPolicyExamples(
+            ArrayList<ActionPolicyTrainingExample> examples) {
+        if (examples == null || examples.isEmpty() || maxExamplesPerGame <= 0) {
+            return new ArrayList<>();
+        }
+        int remaining = maxExamplesPerGame - actionPolicyExamplesWritten;
+        if (remaining <= 0) {
+            return new ArrayList<>();
+        }
+        if (examples.size() <= remaining) {
+            actionPolicyExamplesWritten += examples.size();
+            return examples;
+        }
+
+        ArrayList<ActionPolicyTrainingExample> ranked = new ArrayList<>(examples);
+        Collections.sort(ranked, new Comparator<ActionPolicyTrainingExample>() {
+            @Override
+            public int compare(ActionPolicyTrainingExample a, ActionPolicyTrainingExample b) {
+                return Double.compare(b.target, a.target);
+            }
+        });
+
+        ArrayList<ActionPolicyTrainingExample> capped = new ArrayList<>();
+        for (int i = 0; i < remaining; i++) {
+            capped.add(ranked.get(i));
+        }
+        actionPolicyExamplesWritten += capped.size();
+        return capped;
     }
 
     private boolean shouldRecordPolicyExample() {
