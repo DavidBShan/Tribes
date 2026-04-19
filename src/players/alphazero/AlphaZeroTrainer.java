@@ -813,18 +813,25 @@ public class AlphaZeroTrainer {
         if (snapshot == null) {
             return newReferenceAlphaZero(seed, opts);
         }
-        return newReferenceAlphaZero(seed, opts, snapshot.valuePath, snapshot.policyPath,
-                snapshot.actionPolicyPath);
+        return newAlphaZeroFromPaths(seed, opts, snapshot.valuePath, snapshot.policyPath,
+                snapshot.actionPolicyPath, snapshot.networkType);
     }
 
     private static AlphaZeroAgent newReferenceAlphaZero(long seed, Options opts,
                                                        String valuePath, String policyPath,
                                                        String actionPolicyPath) {
+        String networkType = opts.referenceNetworkType.isEmpty() ? opts.networkType : opts.referenceNetworkType;
+        return newAlphaZeroFromPaths(seed, opts, valuePath, policyPath, actionPolicyPath, networkType);
+    }
+
+    private static AlphaZeroAgent newAlphaZeroFromPaths(long seed, Options opts,
+                                                       String valuePath, String policyPath,
+                                                       String actionPolicyPath, String networkType) {
         AZParams params = new AZParams();
         params.modelPath = valuePath;
         params.policyPath = policyPath;
         params.actionPolicyPath = actionPolicyPath;
-        params.networkType = opts.referenceNetworkType.isEmpty() ? opts.networkType : opts.referenceNetworkType;
+        params.networkType = networkType;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
@@ -877,7 +884,8 @@ public class AlphaZeroTrainer {
             }
             Path actionPolicy = dir.resolve(base + "-action-policy.tsv");
             snapshots.add(new LeagueSnapshot(value.toString(), policy.toString(),
-                    Files.exists(actionPolicy) ? actionPolicy.toString() : opts.referenceActionPolicyPath));
+                    Files.exists(actionPolicy) ? actionPolicy.toString() : opts.referenceActionPolicyPath,
+                    networkTypeForModel(value, opts)));
         }
         if (snapshots.isEmpty()) {
             return null;
@@ -886,15 +894,47 @@ public class AlphaZeroTrainer {
         return snapshots.get(rnd.nextInt(snapshots.size()));
     }
 
+    private static String networkTypeForModel(Path valuePath, Options opts) {
+        if (valuePath == null || !Files.exists(valuePath)) {
+            return opts.networkType;
+        }
+        try (java.io.BufferedReader reader = Files.newBufferedReader(valuePath, StandardCharsets.UTF_8)) {
+            String header = reader.readLine();
+            if (header == null) {
+                return opts.networkType;
+            }
+            if (header.startsWith("# Map shared neural Polytopia")) {
+                return ModelFactory.MAP_SHARED_NEURAL;
+            }
+            if (header.startsWith("# Map Neural Polytopia")) {
+                return ModelFactory.MAP_NEURAL;
+            }
+            if (header.startsWith("# Shared neural Polytopia")) {
+                return ModelFactory.SHARED_NEURAL;
+            }
+            if (header.startsWith("# Neural Polytopia")) {
+                return ModelFactory.NEURAL;
+            }
+            if (header.startsWith("# Linear Polytopia")) {
+                return ModelFactory.LINEAR;
+            }
+        } catch (IOException ignored) {
+            return opts.networkType;
+        }
+        return opts.networkType;
+    }
+
     private static class LeagueSnapshot {
         final String valuePath;
         final String policyPath;
         final String actionPolicyPath;
+        final String networkType;
 
-        LeagueSnapshot(String valuePath, String policyPath, String actionPolicyPath) {
+        LeagueSnapshot(String valuePath, String policyPath, String actionPolicyPath, String networkType) {
             this.valuePath = valuePath;
             this.policyPath = policyPath;
             this.actionPolicyPath = actionPolicyPath;
+            this.networkType = networkType;
         }
     }
 
