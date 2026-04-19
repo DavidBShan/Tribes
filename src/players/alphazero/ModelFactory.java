@@ -10,7 +10,9 @@ public final class ModelFactory {
     public static final String NEURAL = "neural";
     public static final String SHARED_NEURAL = "shared-neural";
     public static final String MAP_NEURAL = "map-neural";
+    public static final String MAP_SHARED_NEURAL = "map-shared-neural";
     private static final Map<String, SharedNeuralCore> SHARED_NEURAL_CACHE = new HashMap<>();
+    private static final Map<String, MapSharedNeuralCore> MAP_SHARED_NEURAL_CACHE = new HashMap<>();
 
     private ModelFactory() {
     }
@@ -21,6 +23,9 @@ public final class ModelFactory {
         }
         if (MAP_NEURAL.equalsIgnoreCase(type)) {
             return MapNeuralValueFunction.load(path);
+        }
+        if (MAP_SHARED_NEURAL.equalsIgnoreCase(type)) {
+            return new MapSharedNeuralValueFunction(mapSharedNeuralCore(path));
         }
         if (NEURAL.equalsIgnoreCase(type)) {
             return NeuralValueFunction.load(path);
@@ -35,6 +40,9 @@ public final class ModelFactory {
         if (MAP_NEURAL.equalsIgnoreCase(type)) {
             return MapNeuralPolicyFunction.load(path);
         }
+        if (MAP_SHARED_NEURAL.equalsIgnoreCase(type)) {
+            return new MapSharedNeuralPolicyFunction(mapSharedNeuralCore(path));
+        }
         if (NEURAL.equalsIgnoreCase(type)) {
             return NeuralPolicyFunction.load(path);
         }
@@ -48,6 +56,9 @@ public final class ModelFactory {
     public static ActionPolicyModel loadActionPolicy(String type, String path) {
         if (MAP_NEURAL.equalsIgnoreCase(type)) {
             return NeuralActionPolicyFunction.load(type, path);
+        }
+        if (MAP_SHARED_NEURAL.equalsIgnoreCase(type)) {
+            return new MapSharedNeuralActionPolicyFunction(mapSharedNeuralCore(path));
         }
         return LinearActionPolicyFunction.load(type, path);
     }
@@ -68,6 +79,18 @@ public final class ModelFactory {
         if (core == null) {
             core = SharedNeuralCore.load(path);
             SHARED_NEURAL_CACHE.put(key, core);
+        }
+        return core;
+    }
+
+    private static synchronized MapSharedNeuralCore mapSharedNeuralCore(String path) {
+        File file = new File(path);
+        File parent = file.getAbsoluteFile().getParentFile();
+        String key = parent == null ? file.getAbsolutePath() : parent.getAbsolutePath();
+        MapSharedNeuralCore core = MAP_SHARED_NEURAL_CACHE.get(key);
+        if (core == null) {
+            core = MapSharedNeuralCore.load(path);
+            MAP_SHARED_NEURAL_CACHE.put(key, core);
         }
         return core;
     }
