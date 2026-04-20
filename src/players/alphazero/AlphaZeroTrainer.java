@@ -97,6 +97,10 @@ public class AlphaZeroTrainer {
                 + " dangerSampleMultiplier=" + opts.dangerSampleMultiplier
                 + " dangerPositionThreshold=" + opts.dangerPositionThreshold
                 + " dangerPositionBlend=" + opts.dangerPositionBlend
+                + " playerCountSampleMultiplier=" + opts.playerCountSampleMultiplier
+                + " playerCountPositionBlend=" + opts.playerCountPositionBlend
+                + " opponentSampleMultiplier=" + opts.opponentSampleMultiplier
+                + " opponentPositionBlend=" + opts.opponentPositionBlend
                 + " searchPositionBlend=" + opts.positionBlend
                 + " advisorMargin=" + opts.advisorOverrideMargin
                 + " opponentAdversaryWeight=" + opts.opponentAdversaryWeight
@@ -550,6 +554,10 @@ public class AlphaZeroTrainer {
         obj.put("danger_sample_multiplier", opts.dangerSampleMultiplier);
         obj.put("danger_position_threshold", opts.dangerPositionThreshold);
         obj.put("danger_position_blend", opts.dangerPositionBlend);
+        obj.put("player_count_sample_multiplier", opts.playerCountSampleMultiplier);
+        obj.put("player_count_position_blend", opts.playerCountPositionBlend);
+        obj.put("opponent_sample_multiplier", opts.opponentSampleMultiplier);
+        obj.put("opponent_position_blend", opts.opponentPositionBlend);
         obj.put("search_position_blend", opts.positionBlend);
         obj.put("advisor_override_margin", opts.advisorOverrideMargin);
         obj.put("opponent_adversary_weight", opts.opponentAdversaryWeight);
@@ -666,6 +674,8 @@ public class AlphaZeroTrainer {
                 opts.networkType, opts.actionNetworkType, opts.valuePositionBlend, opts.terminalPositionBlend,
                 opts.rankValueBlend, opts.survivalValueBlend,
                 opts.dangerSampleMultiplier, opts.dangerPositionThreshold, opts.dangerPositionBlend,
+                opts.playerCountSampleMultiplier, opts.playerCountPositionBlend,
+                opts.opponentSampleMultiplier, opts.opponentPositionBlend,
                 opts.shouldRecordValueFor(botName), opts.shouldRecordPolicyFor(botName), seed);
     }
 
@@ -1347,6 +1357,10 @@ public class AlphaZeroTrainer {
         double dangerSampleMultiplier = 1.0;
         double dangerPositionThreshold = -0.35;
         double dangerPositionBlend = 0.0;
+        double playerCountSampleMultiplier = 1.0;
+        double playerCountPositionBlend = 0.0;
+        double opponentSampleMultiplier = 1.0;
+        double opponentPositionBlend = 0.0;
         double cpuct = 1.50;
         double priorTemperature = 0.75;
         double rootNoiseFraction = 0.0;
@@ -1476,6 +1490,10 @@ public class AlphaZeroTrainer {
                 else if ("danger-sample-multiplier".equals(key)) opts.dangerSampleMultiplier = Double.parseDouble(value);
                 else if ("danger-position-threshold".equals(key)) opts.dangerPositionThreshold = Double.parseDouble(value);
                 else if ("danger-position-blend".equals(key)) opts.dangerPositionBlend = Double.parseDouble(value);
+                else if ("player-count-sample-multiplier".equals(key)) opts.playerCountSampleMultiplier = Double.parseDouble(value);
+                else if ("player-count-position-blend".equals(key)) opts.playerCountPositionBlend = Double.parseDouble(value);
+                else if ("opponent-sample-multiplier".equals(key)) opts.opponentSampleMultiplier = Double.parseDouble(value);
+                else if ("opponent-position-blend".equals(key)) opts.opponentPositionBlend = Double.parseDouble(value);
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
                 else if ("root-gumbel-scale".equals(key)) opts.rootGumbelScale = Double.parseDouble(value);
@@ -1611,6 +1629,10 @@ public class AlphaZeroTrainer {
             dangerSampleMultiplier = Math.max(1.0, dangerSampleMultiplier);
             dangerPositionThreshold = Math.max(-1.0, Math.min(1.0, dangerPositionThreshold));
             dangerPositionBlend = Math.max(0.0, Math.min(1.0, dangerPositionBlend));
+            playerCountSampleMultiplier = Math.max(1.0, playerCountSampleMultiplier);
+            playerCountPositionBlend = Math.max(0.0, Math.min(1.0, playerCountPositionBlend));
+            opponentSampleMultiplier = Math.max(1.0, opponentSampleMultiplier);
+            opponentPositionBlend = Math.max(0.0, Math.min(1.0, opponentPositionBlend));
             opponentSelfishWeight = Math.max(0.0, Math.min(1.0, opponentSelfishWeight));
             leagueMaxSnapshots = Math.max(0, leagueMaxSnapshots);
             leagueSnapshotInterval = Math.max(0, leagueSnapshotInterval);

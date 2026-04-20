@@ -34,6 +34,10 @@ public class RecordingAgent extends Agent {
     private final double dangerSampleMultiplier;
     private final double dangerPositionThreshold;
     private final double dangerPositionBlend;
+    private final double playerCountSampleMultiplier;
+    private final double playerCountPositionBlend;
+    private final double opponentSampleMultiplier;
+    private final double opponentPositionBlend;
     private final int maxExamplesPerGame;
     private final int maxTrajectoriesPerGame;
     private final boolean recordValueExamples;
@@ -50,7 +54,8 @@ public class RecordingAgent extends Agent {
         this(delegate, "unknown", datasetPath, policyDatasetPath, null, null, new JSONObject(),
                 -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action",
                 ModelFactory.LINEAR, ModelFactory.LINEAR, 0.0, 0.0,
-                0.0, 0.0, 1.0, -0.35, 0.0, true, true, seed);
+                0.0, 0.0, 1.0, -0.35, 0.0,
+                1.0, 0.0, 1.0, 0.0, true, true, seed);
     }
 
     public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
@@ -63,6 +68,8 @@ public class RecordingAgent extends Agent {
                           double rankValueBlend, double survivalValueBlend,
                           double dangerSampleMultiplier, double dangerPositionThreshold,
                           double dangerPositionBlend,
+                          double playerCountSampleMultiplier, double playerCountPositionBlend,
+                          double opponentSampleMultiplier, double opponentPositionBlend,
                           boolean recordValueExamples, boolean recordPolicyExamples, long seed) {
         super(seed);
         this.delegate = delegate;
@@ -88,6 +95,10 @@ public class RecordingAgent extends Agent {
         this.dangerSampleMultiplier = Math.max(1.0, dangerSampleMultiplier);
         this.dangerPositionThreshold = Math.max(-1.0, Math.min(1.0, dangerPositionThreshold));
         this.dangerPositionBlend = Math.max(0.0, Math.min(1.0, dangerPositionBlend));
+        this.playerCountSampleMultiplier = Math.max(1.0, playerCountSampleMultiplier);
+        this.playerCountPositionBlend = Math.max(0.0, Math.min(1.0, playerCountPositionBlend));
+        this.opponentSampleMultiplier = Math.max(1.0, opponentSampleMultiplier);
+        this.opponentPositionBlend = Math.max(0.0, Math.min(1.0, opponentPositionBlend));
         this.recordValueExamples = recordValueExamples;
         this.recordPolicyExamples = recordPolicyExamples;
         this.rnd = new Random(seed);
@@ -106,8 +117,14 @@ public class RecordingAgent extends Agent {
         double[] features = FeatureInputs.extract(featureMode, gs, playerID, allPlayerIDs);
         double positionLabel = StateFeatures.positionValue(gs, playerID, allPlayerIDs);
         double valueSampleProbability = sampleProbability;
+        if (isMultiplayerContext()) {
+            valueSampleProbability = Math.min(1.0, valueSampleProbability * playerCountSampleMultiplier);
+        }
+        if (hasNonAzOpponent()) {
+            valueSampleProbability = Math.min(1.0, valueSampleProbability * opponentSampleMultiplier);
+        }
         if (positionLabel <= dangerPositionThreshold) {
-            valueSampleProbability = Math.min(1.0, sampleProbability * dangerSampleMultiplier);
+            valueSampleProbability = Math.min(1.0, valueSampleProbability * dangerSampleMultiplier);
         }
         boolean sampled = recordValueExamples
                 && pending.size() < maxExamplesPerGame
@@ -271,6 +288,12 @@ public class RecordingAgent extends Agent {
         ArrayList<ValueTrainingExample> labeled = new ArrayList<>();
         for (ValueTrainingExample example : pending) {
             double localPositionBlend = valuePositionBlend;
+            if (isMultiplayerContext()) {
+                localPositionBlend = Math.max(localPositionBlend, playerCountPositionBlend);
+            }
+            if (hasNonAzOpponent()) {
+                localPositionBlend = Math.max(localPositionBlend, opponentPositionBlend);
+            }
             if (example.positionLabel <= dangerPositionThreshold) {
                 localPositionBlend = Math.max(localPositionBlend, dangerPositionBlend);
             }
@@ -280,6 +303,25 @@ public class RecordingAgent extends Agent {
         }
         ValueDataset.append(datasetPath, labeled);
         pending.clear();
+    }
+
+    private boolean isMultiplayerContext() {
+        return setupMetadata.optInt("player_count", 2) >= 3;
+    }
+
+    private boolean hasNonAzOpponent() {
+        String opponentLabel = setupMetadata.optString("opponent", "");
+        if (opponentLabel.trim().isEmpty()) {
+            return false;
+        }
+        String[] opponents = opponentLabel.split("\\+");
+        for (String opponent : opponents) {
+            String trimmed = opponent.trim();
+            if (!trimmed.isEmpty() && !"AZ".equalsIgnoreCase(trimmed)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -293,6 +335,8 @@ public class RecordingAgent extends Agent {
                 trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode,
                 featureMode, actionFeatureMode, valuePositionBlend, terminalPositionBlend, rankValueBlend, survivalValueBlend,
                 dangerSampleMultiplier, dangerPositionThreshold, dangerPositionBlend,
+                playerCountSampleMultiplier, playerCountPositionBlend,
+                opponentSampleMultiplier, opponentPositionBlend,
                 recordValueExamples, recordPolicyExamples, seed);
     }
 }
