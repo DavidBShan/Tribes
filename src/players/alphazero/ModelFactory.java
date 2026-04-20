@@ -11,6 +11,8 @@ public final class ModelFactory {
     public static final String SHARED_NEURAL = "shared-neural";
     public static final String MAP_NEURAL = "map-neural";
     public static final String MAP_SHARED_NEURAL = "map-shared-neural";
+    public static final String MAP_LINEAR = "map-linear";
+    public static final String ACTION_NEURAL = "action-neural";
     private static final Map<String, SharedNeuralCore> SHARED_NEURAL_CACHE = new HashMap<>();
     private static final Map<String, MapSharedNeuralCore> MAP_SHARED_NEURAL_CACHE = new HashMap<>();
 
@@ -54,7 +56,13 @@ public final class ModelFactory {
     }
 
     public static ActionPolicyModel loadActionPolicy(String type, String path) {
+        if (MAP_LINEAR.equalsIgnoreCase(type)) {
+            return LinearActionPolicyFunction.load(type, path);
+        }
         if (MAP_NEURAL.equalsIgnoreCase(type)) {
+            return NeuralActionPolicyFunction.load(type, path);
+        }
+        if (ACTION_NEURAL.equalsIgnoreCase(type)) {
             return NeuralActionPolicyFunction.load(type, path);
         }
         if (MAP_SHARED_NEURAL.equalsIgnoreCase(type)) {

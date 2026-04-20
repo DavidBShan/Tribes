@@ -45,7 +45,7 @@ public class AlphaZeroAgent extends Agent {
         this.advisor = new SimpleAgent(seed + 17);
         this.valueFunction = ModelFactory.loadValue(params.networkType, params.modelPath);
         this.policyFunction = ModelFactory.loadPolicy(params.networkType, params.policyPath);
-        this.actionPolicyFunction = ModelFactory.loadActionPolicy(params.networkType, params.actionPolicyPath);
+        this.actionPolicyFunction = ModelFactory.loadActionPolicy(params.actionNetworkType(), params.actionPolicyPath);
     }
 
     @Override
@@ -68,7 +68,7 @@ public class AlphaZeroAgent extends Agent {
         updateTurnCounter(gs);
         this.valueFunction = ModelFactory.loadValue(params.networkType, params.modelPath);
         this.policyFunction = ModelFactory.loadPolicy(params.networkType, params.policyPath);
-        this.actionPolicyFunction = ModelFactory.loadActionPolicy(params.networkType, params.actionPolicyPath);
+        this.actionPolicyFunction = ModelFactory.loadActionPolicy(params.actionNetworkType(), params.actionPolicyPath);
         this.heuristic = params.getStateHeuristic(playerID, allPlayerIDs);
         this.rootState = gs;
         this.advisorAction = (params.advisorOverride || params.staticPriors) ? safeAdvisorAction(gs, ect) : null;
@@ -865,7 +865,7 @@ public class AlphaZeroAgent extends Agent {
                 }
                 double target = child.visits <= 0 ? 0.0 : child.visits / total;
                 examples.add(new ActionPolicyTrainingExample(target,
-                        ActionFeatureInputs.extract(params.networkType, parentState, child.state,
+                        ActionFeatureInputs.extract(params.actionNetworkType(), parentState, child.state,
                                 actor, ids, child.actionFromParent)));
             }
             return examples;
@@ -885,7 +885,7 @@ public class AlphaZeroAgent extends Agent {
                     continue;
                 }
                 examples.add(new ActionPolicyTrainingExample(childWeights[i],
-                        ActionFeatureInputs.extract(params.networkType, parentState, child.state,
+                        ActionFeatureInputs.extract(params.actionNetworkType(), parentState, child.state,
                                 actor, ids, child.actionFromParent)));
             }
             return examples;

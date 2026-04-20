@@ -12,7 +12,8 @@ final class ActionFeatureInputs {
 
     static boolean usesMap(String networkType) {
         return ModelFactory.MAP_NEURAL.equalsIgnoreCase(networkType)
-                || ModelFactory.MAP_SHARED_NEURAL.equalsIgnoreCase(networkType);
+                || ModelFactory.MAP_SHARED_NEURAL.equalsIgnoreCase(networkType)
+                || ModelFactory.MAP_LINEAR.equalsIgnoreCase(networkType);
     }
 
     static int featureCount(String networkType) {

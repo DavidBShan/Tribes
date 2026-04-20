@@ -39,6 +39,7 @@ public class AZParams extends AlgParams {
     public boolean learnedValueOnly = false;
     public boolean prefilterByStaticScore = true;
     public String networkType = ModelFactory.LINEAR;
+    public String actionNetworkType = "";
     public String modelPath = "models/alphazero-value.tsv";
     public String policyPath = "models/alphazero-policy.tsv";
     public String actionPolicyPath = "";
@@ -69,6 +70,11 @@ public class AZParams extends AlgParams {
         if (depth != null && !depth.trim().isEmpty()) {
             ROLLOUT_LENGTH = Integer.parseInt(depth.trim());
         }
+    }
+
+    public String actionNetworkType() {
+        return actionNetworkType == null || actionNetworkType.trim().isEmpty()
+                ? networkType : actionNetworkType.trim();
     }
 
     public int ROLLOUT_LENGTH;

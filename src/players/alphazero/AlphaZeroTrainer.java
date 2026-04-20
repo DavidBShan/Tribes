@@ -34,15 +34,20 @@ public class AlphaZeroTrainer {
 
         System.out.println("AlphaZero-style value training");
         System.out.println("networkType=" + opts.networkType);
+        System.out.println("actionNetworkType=" + opts.actionNetworkType);
         if (!opts.referenceNetworkType.isEmpty()) {
             System.out.println("referenceNetworkType=" + opts.referenceNetworkType);
+        }
+        if (!opts.referenceActionNetworkType.isEmpty()) {
+            System.out.println("referenceActionNetworkType=" + opts.referenceActionNetworkType);
         }
         System.out.println("valueModel=" + opts.modelPath + " valueData=" + opts.dataPath);
         System.out.println("policyModel=" + opts.policyPath + " policyData=" + opts.policyDataPath);
         if (!opts.actionPolicyPath.isEmpty()) {
             System.out.println("actionPolicyModel=" + opts.actionPolicyPath
                     + " actionPolicyData=" + opts.actionPolicyDataPath
-                    + " actionPolicyLogitWeight=" + opts.actionPolicyLogitWeight);
+                    + " actionPolicyLogitWeight=" + opts.actionPolicyLogitWeight
+                    + " actionNetworkType=" + opts.actionNetworkType);
         }
         System.out.println("policyTargets=" + opts.policyTargetMode);
         System.out.println("bestValueModel=" + opts.bestModelPath + " bestPolicyModel=" + opts.bestPolicyPath
@@ -196,8 +201,8 @@ public class AlphaZeroTrainer {
                 if (!opts.actionPolicyPath.isEmpty()) {
                     ArrayList<ActionPolicyTrainingExample> actionPolicyExamples =
                             ActionPolicyDataset.load(opts.actionPolicyDataPath, opts.maxTrainingExamples,
-                                    ActionFeatureInputs.featureCount(opts.networkType));
-                    ActionPolicyModel actionPolicy = ModelFactory.loadActionPolicy(opts.networkType, opts.actionPolicyPath);
+                                    ActionFeatureInputs.featureCount(opts.actionNetworkType));
+                    ActionPolicyModel actionPolicy = ModelFactory.loadActionPolicy(opts.actionNetworkType, opts.actionPolicyPath);
                     if (!actionPolicyExamples.isEmpty()) {
                         double actionPolicyLoss = actionPolicy.train(actionPolicyExamples, opts.policyEpochs,
                                 opts.policyLearningRate, opts.l2, opts.seed + 1999L * iteration);
@@ -325,6 +330,7 @@ public class AlphaZeroTrainer {
         manifest.put("created_at_ms", System.currentTimeMillis());
         manifest.put("tag", tag);
         manifest.put("network_type", opts.networkType);
+        manifest.put("action_network_type", opts.actionNetworkType);
         manifest.put("value_model", value.getFileName().toString());
         manifest.put("policy_model", policy.getFileName().toString());
         if (Files.exists(actionPolicy)) {
@@ -651,8 +657,8 @@ public class AlphaZeroTrainer {
         return new RecordingAgent(agent, botName, opts.dataPath, opts.policyDataPath, opts.actionPolicyDataPath,
                 trajectoryWriter, setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
                 opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
-                opts.networkType, opts.valuePositionBlend, opts.terminalPositionBlend, opts.rankValueBlend,
-                opts.survivalValueBlend, opts.shouldRecordValueFor(botName),
+                opts.networkType, opts.actionNetworkType, opts.valuePositionBlend, opts.terminalPositionBlend,
+                opts.rankValueBlend, opts.survivalValueBlend, opts.shouldRecordValueFor(botName),
                 opts.shouldRecordPolicyFor(botName), seed);
     }
 
@@ -776,6 +782,7 @@ public class AlphaZeroTrainer {
         params.policyPath = opts.policyPath;
         params.actionPolicyPath = opts.actionPolicyPath;
         params.networkType = opts.networkType;
+        params.actionNetworkType = opts.actionNetworkType;
         params.num_fmcalls = training ? opts.activeAzSearchCalls() : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
@@ -820,24 +827,29 @@ public class AlphaZeroTrainer {
             return newReferenceAlphaZero(seed, opts);
         }
         return newAlphaZeroFromPaths(seed, opts, snapshot.valuePath, snapshot.policyPath,
-                snapshot.actionPolicyPath, snapshot.networkType);
+                snapshot.actionPolicyPath, snapshot.networkType, snapshot.actionNetworkType);
     }
 
     private static AlphaZeroAgent newReferenceAlphaZero(long seed, Options opts,
                                                        String valuePath, String policyPath,
                                                        String actionPolicyPath) {
         String networkType = opts.referenceNetworkType.isEmpty() ? opts.networkType : opts.referenceNetworkType;
-        return newAlphaZeroFromPaths(seed, opts, valuePath, policyPath, actionPolicyPath, networkType);
+        String actionNetworkType = opts.referenceActionNetworkType.isEmpty()
+                ? networkType : opts.referenceActionNetworkType;
+        return newAlphaZeroFromPaths(seed, opts, valuePath, policyPath, actionPolicyPath,
+                networkType, actionNetworkType);
     }
 
     private static AlphaZeroAgent newAlphaZeroFromPaths(long seed, Options opts,
                                                        String valuePath, String policyPath,
-                                                       String actionPolicyPath, String networkType) {
+                                                       String actionPolicyPath, String networkType,
+                                                       String actionNetworkType) {
         AZParams params = new AZParams();
         params.modelPath = valuePath;
         params.policyPath = policyPath;
         params.actionPolicyPath = actionPolicyPath;
         params.networkType = networkType;
+        params.actionNetworkType = actionNetworkType;
         params.num_fmcalls = opts.referenceSearchFmCalls > 0 ? opts.referenceSearchFmCalls : opts.searchFmCalls;
         params.ROLLOUT_LENGTH = opts.searchDepth;
         params.cpuct = opts.cpuct;
@@ -892,7 +904,7 @@ public class AlphaZeroTrainer {
             Path actionPolicy = dir.resolve(base + "-action-policy.tsv");
             snapshots.add(new LeagueSnapshot(value.toString(), policy.toString(),
                     Files.exists(actionPolicy) ? actionPolicy.toString() : opts.referenceActionPolicyPath,
-                    networkTypeForModel(value, opts)));
+                    networkTypeForModel(value, opts), actionNetworkTypeForModel(actionPolicy, opts)));
         }
         if (snapshots.isEmpty()) {
             return null;
@@ -931,17 +943,46 @@ public class AlphaZeroTrainer {
         return opts.networkType;
     }
 
+    private static String actionNetworkTypeForModel(Path actionPolicyPath, Options opts) {
+        if (actionPolicyPath == null || !Files.exists(actionPolicyPath)) {
+            return opts.actionNetworkType;
+        }
+        try (java.io.BufferedReader reader = Files.newBufferedReader(actionPolicyPath, StandardCharsets.UTF_8)) {
+            for (int i = 0; i < 8; i++) {
+                String line = reader.readLine();
+                if (line == null) {
+                    break;
+                }
+                if (line.startsWith("# Map shared neural Polytopia")) {
+                    return ModelFactory.MAP_SHARED_NEURAL;
+                }
+                if (line.startsWith("networkType\t")) {
+                    return line.split("\\t", 2)[1].trim();
+                }
+                if (line.startsWith("# networkType\t")) {
+                    return line.split("\\t", 2)[1].trim();
+                }
+            }
+        } catch (IOException ignored) {
+            return opts.actionNetworkType;
+        }
+        return opts.actionNetworkType;
+    }
+
     private static class LeagueSnapshot {
         final String valuePath;
         final String policyPath;
         final String actionPolicyPath;
         final String networkType;
+        final String actionNetworkType;
 
-        LeagueSnapshot(String valuePath, String policyPath, String actionPolicyPath, String networkType) {
+        LeagueSnapshot(String valuePath, String policyPath, String actionPolicyPath,
+                       String networkType, String actionNetworkType) {
             this.valuePath = valuePath;
             this.policyPath = policyPath;
             this.actionPolicyPath = actionPolicyPath;
             this.networkType = networkType;
+            this.actionNetworkType = actionNetworkType;
         }
     }
 
@@ -1228,7 +1269,9 @@ public class AlphaZeroTrainer {
         String policyPath = "models/alphazero-policy.tsv";
         String actionPolicyPath = "";
         String networkType = ModelFactory.LINEAR;
+        String actionNetworkType = "";
         String referenceNetworkType = "";
+        String referenceActionNetworkType = "";
         String bestModelPath = "";
         String bestPolicyPath = "";
         String bestActionPolicyPath = "";
@@ -1349,7 +1392,9 @@ public class AlphaZeroTrainer {
                 else if ("policy".equals(key)) opts.policyPath = value;
                 else if ("action-policy".equals(key)) opts.actionPolicyPath = value;
                 else if ("network-type".equals(key)) opts.networkType = value;
+                else if ("action-network-type".equals(key)) opts.actionNetworkType = value;
                 else if ("reference-network-type".equals(key)) opts.referenceNetworkType = value;
+                else if ("reference-action-network-type".equals(key)) opts.referenceActionNetworkType = value;
                 else if ("best-model".equals(key)) opts.bestModelPath = value;
                 else if ("best-policy".equals(key)) opts.bestPolicyPath = value;
                 else if ("best-action-policy".equals(key)) opts.bestActionPolicyPath = value;
@@ -1484,6 +1529,13 @@ public class AlphaZeroTrainer {
         }
 
         private void resolveDerivedPaths() {
+            if (actionNetworkType == null || actionNetworkType.trim().isEmpty()) {
+                actionNetworkType = networkType;
+            }
+            if (referenceActionNetworkType == null || referenceActionNetworkType.trim().isEmpty()) {
+                referenceActionNetworkType = referenceNetworkType == null || referenceNetworkType.trim().isEmpty()
+                        ? networkType : referenceNetworkType;
+            }
             if (bestModelPath == null || bestModelPath.trim().isEmpty()) {
                 bestModelPath = derivedBestPath(modelPath);
             }
