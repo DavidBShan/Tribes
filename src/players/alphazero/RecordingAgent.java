@@ -33,10 +33,12 @@ public class RecordingAgent extends Agent {
     private final int maxExamplesPerGame;
     private final int maxTrajectoriesPerGame;
     private final boolean recordValueExamples;
+    private final boolean recordPolicyExamples;
     private final Random rnd;
     private final Random trajectoryRnd;
     private final ArrayList<ValueTrainingExample> pending;
     private int localActionIndex = 0;
+    private int policyExamplesWritten = 0;
     private int actionPolicyExamplesWritten = 0;
 
     public RecordingAgent(Agent delegate, String datasetPath, String policyDatasetPath,
@@ -44,7 +46,7 @@ public class RecordingAgent extends Agent {
         this(delegate, "unknown", datasetPath, policyDatasetPath, null, null, new JSONObject(),
                 -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action",
                 ModelFactory.LINEAR, 0.0, 0.0,
-                0.0, 0.0, true, seed);
+                0.0, 0.0, true, true, seed);
     }
 
     public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
@@ -55,7 +57,7 @@ public class RecordingAgent extends Agent {
                           String policyTargetMode, String featureMode,
                           double valuePositionBlend, double terminalPositionBlend,
                           double rankValueBlend, double survivalValueBlend,
-                          boolean recordValueExamples, long seed) {
+                          boolean recordValueExamples, boolean recordPolicyExamples, long seed) {
         super(seed);
         this.delegate = delegate;
         this.botName = botName;
@@ -77,6 +79,7 @@ public class RecordingAgent extends Agent {
         this.rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
         this.survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
         this.recordValueExamples = recordValueExamples;
+        this.recordPolicyExamples = recordPolicyExamples;
         this.rnd = new Random(seed);
         this.trajectoryRnd = new Random(seed ^ 0x5DEECE66DL);
         this.pending = new ArrayList<>();
@@ -98,21 +101,32 @@ public class RecordingAgent extends Agent {
             double positionLabel = StateFeatures.positionValue(gs, playerID, allPlayerIDs);
             pending.add(new ValueTrainingExample(0.0, features, positionLabel));
         }
+        boolean sampledPolicy = recordPolicyExamples
+                && policyExamplesWritten < maxExamplesPerGame
+                && rnd.nextDouble() <= sampleProbability;
 
         long started = System.nanoTime();
         Action action = delegate.act(gs, ect);
         long elapsedMicros = (System.nanoTime() - started) / 1000L;
-        if (sampled && action != null && shouldRecordPolicyExample()) {
+        if (sampledPolicy && action != null) {
             ArrayList<PolicyTrainingExample> policyExamples = new ArrayList<>();
             policyExamples.add(policyExample(action, features));
             PolicyDataset.append(policyDatasetPath, policyExamples);
-            AlphaZeroAgent alphaZero = (AlphaZeroAgent) delegate;
-            ArrayList<ActionPolicyTrainingExample> actionPolicyExamples = useImprovedPolicyTargets()
-                    ? alphaZero.lastImprovedActionPolicyExamples()
-                    : alphaZero.lastActionPolicyExamples();
-            actionPolicyExamples = cappedActionPolicyExamples(actionPolicyExamples);
-            actionPolicyExamples = groupedActionPolicyExamples(actionPolicyExamples);
-            ActionPolicyDataset.append(actionPolicyDatasetPath, actionPolicyExamples);
+            policyExamplesWritten++;
+            if (actionPolicyDatasetPath != null && !actionPolicyDatasetPath.trim().isEmpty()) {
+                ArrayList<ActionPolicyTrainingExample> actionPolicyExamples;
+                if (delegate instanceof AlphaZeroAgent) {
+                    AlphaZeroAgent alphaZero = (AlphaZeroAgent) delegate;
+                    actionPolicyExamples = useImprovedPolicyTargets()
+                            ? alphaZero.lastImprovedActionPolicyExamples()
+                            : alphaZero.lastActionPolicyExamples();
+                } else {
+                    actionPolicyExamples = imitationActionPolicyExamples(gs, action);
+                }
+                actionPolicyExamples = cappedActionPolicyExamples(actionPolicyExamples);
+                actionPolicyExamples = groupedActionPolicyExamples(actionPolicyExamples);
+                ActionPolicyDataset.append(actionPolicyDatasetPath, actionPolicyExamples);
+            }
         }
         if (shouldRecordTrajectory() && action != null) {
             trajectoryWriter.writeSample(episode, localActionIndex, botName, seat, playerID, setupMetadata,
@@ -139,6 +153,24 @@ public class RecordingAgent extends Agent {
             }
         }
         return new PolicyTrainingExample(action.getActionType().ordinal(), features);
+    }
+
+    private ArrayList<ActionPolicyTrainingExample> imitationActionPolicyExamples(GameState gs, Action chosen) {
+        ArrayList<ActionPolicyTrainingExample> examples = new ArrayList<>();
+        ArrayList<Action> actions = gs.getAllAvailableActions();
+        for (Action candidate : actions) {
+            if (!candidate.isFeasible(gs)) {
+                continue;
+            }
+            GameState next = gs.copy();
+            if (!next.advance(candidate, true, false)) {
+                continue;
+            }
+            double target = candidate.equals(chosen) ? 1.0 : 0.0;
+            examples.add(new ActionPolicyTrainingExample(target,
+                    ActionFeatureInputs.extract(featureMode, gs, next, playerID, allPlayerIDs, candidate)));
+        }
+        return examples;
     }
 
     private boolean useImprovedPolicyTargets() {
@@ -198,10 +230,6 @@ public class RecordingAgent extends Agent {
                 ^ (localActionIndex & 0xffffL);
     }
 
-    private boolean shouldRecordPolicyExample() {
-        return "AZ".equalsIgnoreCase(botName) && delegate instanceof AlphaZeroAgent;
-    }
-
     private boolean shouldRecordTrajectory() {
         return trajectoryWriter != null
                 && localActionIndex < maxTrajectoriesPerGame
@@ -246,6 +274,6 @@ public class RecordingAgent extends Agent {
                 trajectoryWriter, setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
                 trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode,
                 featureMode, valuePositionBlend, terminalPositionBlend, rankValueBlend, survivalValueBlend,
-                recordValueExamples, seed);
+                recordValueExamples, recordPolicyExamples, seed);
     }
 }

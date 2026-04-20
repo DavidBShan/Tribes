@@ -101,9 +101,10 @@ public class AlphaZeroTrainer {
                 + " learnedValueOnly=" + opts.learnedValueOnly
                 + " prefilterByStaticScore=" + opts.prefilterByStaticScore);
         if (opts.recordTrajectories) {
-            System.out.println("sftTrajectories=" + opts.trajectoryPath);
+        System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
         System.out.println("valueRecordingBots=" + opts.valueRecordingBotsCsv);
+        System.out.println("policyRecordingBots=" + opts.policyRecordingBotsCsv);
 
         boolean targetReached = false;
         CheckpointScore bestCheckpoint = null;
@@ -522,6 +523,7 @@ public class AlphaZeroTrainer {
         obj.put("training_opponent_mode", opts.trainingOpponentMode);
         obj.put("policy_targets", opts.policyTargetMode);
         obj.put("value_recording_bots", opts.valueRecordingBotsCsv);
+        obj.put("policy_recording_bots", opts.policyRecordingBotsCsv);
         obj.put("policy_logit_weight", opts.policyLogitWeight);
         obj.put("root_noise_fraction", opts.rootNoiseFraction);
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
@@ -650,7 +652,8 @@ public class AlphaZeroTrainer {
                 trajectoryWriter, setupMetadata, episode, seat, opts.sampleProbability, opts.maxExamplesPerGame,
                 opts.trajectorySampleProbability, opts.maxTrajectoriesPerGame, opts.policyTargetMode,
                 opts.networkType, opts.valuePositionBlend, opts.terminalPositionBlend, opts.rankValueBlend,
-                opts.survivalValueBlend, opts.shouldRecordValueFor(botName), seed);
+                opts.survivalValueBlend, opts.shouldRecordValueFor(botName),
+                opts.shouldRecordPolicyFor(botName), seed);
     }
 
     private static MatchResult evaluate(Options opts, String opponent, int evalGames, long seedBase) {
@@ -1240,6 +1243,7 @@ public class AlphaZeroTrainer {
         String leagueDir = "";
         String trainingOpponentsCsv = "SIMPLE,OSLA,AZ";
         String valueRecordingBotsCsv = "ALL";
+        String policyRecordingBotsCsv = "AZ";
         String policyTargetMode = "action";
         String promptId = "alphazero-training-sft-v1";
         String actionFormat = "compact-full";
@@ -1360,6 +1364,7 @@ public class AlphaZeroTrainer {
                 else if ("league-dir".equals(key)) opts.leagueDir = value;
                 else if ("training-opponents".equals(key)) opts.trainingOpponentsCsv = value;
                 else if ("value-recording-bots".equals(key)) opts.valueRecordingBotsCsv = value;
+                else if ("policy-recording-bots".equals(key)) opts.policyRecordingBotsCsv = value;
                 else if ("policy-targets".equals(key)) opts.policyTargetMode = value;
                 else if ("prompt-id".equals(key)) opts.promptId = value;
                 else if ("action-format".equals(key)) opts.actionFormat = value;
@@ -1591,6 +1596,22 @@ public class AlphaZeroTrainer {
             ArrayList<String> bots = csv(valueRecordingBotsCsv);
             if (bots.isEmpty()) {
                 return true;
+            }
+            for (String bot : bots) {
+                if ("ALL".equalsIgnoreCase(bot)) {
+                    return true;
+                }
+                if (bot.equalsIgnoreCase(botName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        boolean shouldRecordPolicyFor(String botName) {
+            ArrayList<String> bots = csv(policyRecordingBotsCsv);
+            if (bots.isEmpty()) {
+                return false;
             }
             for (String bot : bots) {
                 if ("ALL".equalsIgnoreCase(bot)) {
