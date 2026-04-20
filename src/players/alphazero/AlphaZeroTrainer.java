@@ -70,7 +70,8 @@ public class AlphaZeroTrainer {
         }
         System.out.println("trainingRootNoise=" + opts.rootNoiseFraction
                 + " rootDirichletAlpha=" + opts.rootDirichletAlpha
-                + " rootGumbelScale=" + opts.rootGumbelScale);
+                + " rootGumbelScale=" + opts.rootGumbelScale
+                + " rootSequentialHalving=" + opts.rootSequentialHalving);
         System.out.println("rootValueSelectionWeight=" + opts.rootValueSelectionWeight
                 + " improvedPolicyValueWeight=" + opts.improvedPolicyValueWeight
                 + " improvedPolicyTemperature=" + opts.improvedPolicyTemperature);
@@ -525,6 +526,7 @@ public class AlphaZeroTrainer {
         obj.put("root_noise_fraction", opts.rootNoiseFraction);
         obj.put("root_dirichlet_alpha", opts.rootDirichletAlpha);
         obj.put("root_gumbel_scale", opts.rootGumbelScale);
+        obj.put("root_sequential_halving", opts.rootSequentialHalving);
         obj.put("root_value_selection_weight", opts.rootValueSelectionWeight);
         obj.put("improved_policy_value_weight", opts.improvedPolicyValueWeight);
         obj.put("improved_policy_temperature", opts.improvedPolicyTemperature);
@@ -795,6 +797,7 @@ public class AlphaZeroTrainer {
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.rootGumbelScale = training ? opts.rootGumbelScale : 0.0;
+        params.rootSequentialHalving = training && opts.rootSequentialHalving;
         params.rootValueSelectionWeight = opts.rootValueSelectionWeight;
         params.improvedPolicyValueWeight = opts.improvedPolicyValueWeight;
         params.improvedPolicyTemperature = opts.improvedPolicyTemperature;
@@ -856,6 +859,7 @@ public class AlphaZeroTrainer {
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.rootGumbelScale = 0.0;
+        params.rootSequentialHalving = false;
         params.rootValueSelectionWeight = opts.rootValueSelectionWeight;
         params.improvedPolicyValueWeight = opts.improvedPolicyValueWeight;
         params.improvedPolicyTemperature = opts.improvedPolicyTemperature;
@@ -1291,6 +1295,7 @@ public class AlphaZeroTrainer {
         double rootNoiseFraction = 0.0;
         double rootDirichletAlpha = 0.30;
         double rootGumbelScale = 0.0;
+        boolean rootSequentialHalving = false;
         double rootValueSelectionWeight = 0.0;
         double improvedPolicyValueWeight = 1.0;
         double improvedPolicyTemperature = 1.0;
@@ -1411,6 +1416,7 @@ public class AlphaZeroTrainer {
                 else if ("root-noise".equals(key)) opts.rootNoiseFraction = Double.parseDouble(value);
                 else if ("root-alpha".equals(key)) opts.rootDirichletAlpha = Double.parseDouble(value);
                 else if ("root-gumbel-scale".equals(key)) opts.rootGumbelScale = Double.parseDouble(value);
+                else if ("root-sequential-halving".equals(key)) opts.rootSequentialHalving = Boolean.parseBoolean(value);
                 else if ("root-value-selection-weight".equals(key)) opts.rootValueSelectionWeight = Double.parseDouble(value);
                 else if ("improved-policy-value-weight".equals(key)) opts.improvedPolicyValueWeight = Double.parseDouble(value);
                 else if ("improved-policy-temp".equals(key)) opts.improvedPolicyTemperature = Double.parseDouble(value);

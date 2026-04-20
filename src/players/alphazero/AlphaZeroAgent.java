@@ -101,23 +101,16 @@ public class AlphaZeroAgent extends Agent {
         root.expand(rootActions);
 
         int iterations = 0;
-        while (fmCalls < params.num_fmcalls) {
-            Node leaf = root;
-            while (leaf.expanded && !leaf.state.isGameOver()
-                    && leaf.depth < params.ROLLOUT_LENGTH && !leaf.children.isEmpty()) {
-                leaf = leaf.selectChild();
-            }
+        if (params.rootSequentialHalving && root.children.size() > 1) {
+            iterations = runRootSequentialHalving(root);
+        } else {
+            while (fmCalls < params.num_fmcalls) {
+                runTreeSimulation(root);
+                iterations++;
 
-            if (!leaf.state.isGameOver() && leaf.depth < params.ROLLOUT_LENGTH && !leaf.expanded) {
-                leaf.expand(null);
-            }
-
-            double value = evaluateLeaf(leaf.state);
-            leaf.backup(value);
-            iterations++;
-
-            if (params.stop_type == params.STOP_ITERATIONS && iterations >= params.num_iterations) {
-                break;
+                if (params.stop_type == params.STOP_ITERATIONS && iterations >= params.num_iterations) {
+                    break;
+                }
             }
         }
 
@@ -151,6 +144,87 @@ public class AlphaZeroAgent extends Agent {
         }
 
         return bestImmediateAction(gs, rootActions);
+    }
+
+    private int runTreeSimulation(Node root) {
+        Node leaf = root;
+        while (leaf.expanded && !leaf.state.isGameOver()
+                && leaf.depth < params.ROLLOUT_LENGTH && !leaf.children.isEmpty()) {
+            leaf = leaf.selectChild();
+        }
+
+        if (!leaf.state.isGameOver() && leaf.depth < params.ROLLOUT_LENGTH && !leaf.expanded) {
+            leaf.expand(null);
+        }
+
+        double value = evaluateLeaf(leaf.state);
+        leaf.backup(value);
+        return 1;
+    }
+
+    private int runTreeSimulationFrom(Node start) {
+        Node leaf = start;
+        while (leaf.expanded && !leaf.state.isGameOver()
+                && leaf.depth < params.ROLLOUT_LENGTH && !leaf.children.isEmpty()) {
+            leaf = leaf.selectChild();
+        }
+
+        if (!leaf.state.isGameOver() && leaf.depth < params.ROLLOUT_LENGTH && !leaf.expanded) {
+            leaf.expand(null);
+        }
+
+        double value = evaluateLeaf(leaf.state);
+        leaf.backup(value);
+        return 1;
+    }
+
+    private int runRootSequentialHalving(Node root) {
+        ArrayList<Node> active = new ArrayList<>(root.children);
+        int iterations = 0;
+        int rounds = Math.max(1, (int) Math.ceil(Math.log(Math.max(2, active.size())) / Math.log(2.0)));
+
+        for (int round = 0; round < rounds && active.size() > 1
+                && fmCalls < params.num_fmcalls; round++) {
+            int remainingRounds = Math.max(1, rounds - round);
+            int remainingBudget = Math.max(1, params.num_fmcalls - fmCalls);
+            int simsPerChild = Math.max(1, remainingBudget / Math.max(1, active.size() * remainingRounds));
+
+            for (Node child : active) {
+                for (int i = 0; i < simsPerChild && fmCalls < params.num_fmcalls; i++) {
+                    iterations += runTreeSimulationFrom(child);
+                    if (params.stop_type == params.STOP_ITERATIONS && iterations >= params.num_iterations) {
+                        return iterations;
+                    }
+                }
+            }
+
+            Collections.sort(active, new Comparator<Node>() {
+                @Override
+                public int compare(Node a, Node b) {
+                    return Double.compare(rootHalvingScore(b), rootHalvingScore(a));
+                }
+            });
+            int keep = Math.max(1, (active.size() + 1) / 2);
+            while (active.size() > keep) {
+                active.remove(active.size() - 1);
+            }
+        }
+
+        int cursor = 0;
+        while (fmCalls < params.num_fmcalls && !active.isEmpty()) {
+            Node child = active.get(cursor % active.size());
+            iterations += runTreeSimulationFrom(child);
+            cursor++;
+            if (params.stop_type == params.STOP_ITERATIONS && iterations >= params.num_iterations) {
+                break;
+            }
+        }
+        return iterations;
+    }
+
+    private double rootHalvingScore(Node child) {
+        double q = child.visits == 0 ? -1.0 : child.valueSum / child.visits;
+        return child.selectionLogit + params.improvedPolicyValueWeight * q;
     }
 
     private boolean shouldSampleFromVisits(GameState gs) {
