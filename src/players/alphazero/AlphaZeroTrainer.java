@@ -111,7 +111,9 @@ public class AlphaZeroTrainer {
                 + " staticPriors=" + opts.staticPriors
                 + " nextStateValuePrior=" + opts.nextStateValuePrior
                 + " learnedValueOnly=" + opts.learnedValueOnly
-                + " prefilterByStaticScore=" + opts.prefilterByStaticScore);
+                + " prefilterByStaticScore=" + opts.prefilterByStaticScore
+                + " sampledPrefilterActions=" + opts.sampledPrefilterActions
+                + " sampledPrefilterTemperature=" + opts.sampledPrefilterTemperature);
         if (opts.recordTrajectories) {
         System.out.println("sftTrajectories=" + opts.trajectoryPath);
         }
@@ -543,6 +545,8 @@ public class AlphaZeroTrainer {
         obj.put("root_gumbel_scale", opts.rootGumbelScale);
         obj.put("root_sequential_halving", opts.rootSequentialHalving);
         obj.put("root_value_selection_weight", opts.rootValueSelectionWeight);
+        obj.put("sampled_prefilter_actions", opts.sampledPrefilterActions);
+        obj.put("sampled_prefilter_temperature", opts.sampledPrefilterTemperature);
         obj.put("improved_policy_value_weight", opts.improvedPolicyValueWeight);
         obj.put("improved_policy_temperature", opts.improvedPolicyTemperature);
         obj.put("visit_sampling_temperature", opts.visitSamplingTemperature);
@@ -821,6 +825,8 @@ public class AlphaZeroTrainer {
         params.nextStateValuePrior = opts.nextStateValuePrior;
         params.learnedValueOnly = opts.learnedValueOnly;
         params.prefilterByStaticScore = opts.prefilterByStaticScore;
+        params.sampledPrefilterActions = opts.sampledPrefilterActions;
+        params.sampledPrefilterTemperature = opts.sampledPrefilterTemperature;
         params.rootNoiseFraction = training ? opts.rootNoiseFraction : 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.rootGumbelScale = training ? opts.rootGumbelScale : 0.0;
@@ -888,6 +894,8 @@ public class AlphaZeroTrainer {
         params.nextStateValuePrior = opts.nextStateValuePrior;
         params.learnedValueOnly = opts.learnedValueOnly;
         params.prefilterByStaticScore = opts.prefilterByStaticScore;
+        params.sampledPrefilterActions = opts.sampledPrefilterActions;
+        params.sampledPrefilterTemperature = opts.sampledPrefilterTemperature;
         params.rootNoiseFraction = 0.0;
         params.rootDirichletAlpha = opts.rootDirichletAlpha;
         params.rootGumbelScale = 0.0;
@@ -1401,6 +1409,8 @@ public class AlphaZeroTrainer {
         boolean nextStateValuePrior = true;
         boolean learnedValueOnly = false;
         boolean prefilterByStaticScore = true;
+        boolean sampledPrefilterActions = false;
+        double sampledPrefilterTemperature = 1.0;
 
         static Options parse(String[] args) {
             Options opts = new Options();
@@ -1532,6 +1542,8 @@ public class AlphaZeroTrainer {
                 else if ("next-state-value-prior".equals(key)) opts.nextStateValuePrior = Boolean.parseBoolean(value);
                 else if ("learned-value-only".equals(key)) opts.learnedValueOnly = Boolean.parseBoolean(value);
                 else if ("prefilter-by-static-score".equals(key)) opts.prefilterByStaticScore = Boolean.parseBoolean(value);
+                else if ("sampled-prefilter-actions".equals(key)) opts.sampledPrefilterActions = Boolean.parseBoolean(value);
+                else if ("sampled-prefilter-temp".equals(key)) opts.sampledPrefilterTemperature = Double.parseDouble(value);
                 else {
                     throw new IllegalArgumentException("Unknown option --" + key);
                 }

@@ -38,6 +38,8 @@ public class AZParams extends AlgParams {
     public boolean nextStateValuePrior = true;
     public boolean learnedValueOnly = false;
     public boolean prefilterByStaticScore = true;
+    public boolean sampledPrefilterActions = false;
+    public double sampledPrefilterTemperature = 1.0;
     public String networkType = ModelFactory.LINEAR;
     public String actionNetworkType = "";
     public String modelPath = "models/alphazero-value.tsv";

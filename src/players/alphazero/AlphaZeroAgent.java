@@ -397,29 +397,76 @@ public class AlphaZeroAgent extends Agent {
         }
 
         if (filtered.size() > params.prefilterActions) {
-            if (params.prefilterByStaticScore) {
-                Collections.sort(filtered, new Comparator<Action>() {
-                    @Override
-                    public int compare(Action a, Action b) {
-                        return Double.compare(staticActionScore(b), staticActionScore(a));
-                    }
-                });
-            }
+            if (params.sampledPrefilterActions) {
+                filtered = sampledPrefilter(filtered, endTurn, root);
+            } else {
+                if (params.prefilterByStaticScore) {
+                    Collections.sort(filtered, new Comparator<Action>() {
+                        @Override
+                        public int compare(Action a, Action b) {
+                            return Double.compare(staticActionScore(b), staticActionScore(a));
+                        }
+                    });
+                }
 
-            ArrayList<Action> limited = new ArrayList<>();
-            for (int i = 0; i < params.prefilterActions && i < filtered.size(); i++) {
-                limited.add(filtered.get(i));
+                ArrayList<Action> limited = new ArrayList<>();
+                for (int i = 0; i < params.prefilterActions && i < filtered.size(); i++) {
+                    limited.add(filtered.get(i));
+                }
+                if (endTurn != null && !limited.contains(endTurn)) {
+                    limited.set(limited.size() - 1, endTurn);
+                }
+                if (params.staticPriors && root && advisorAction != null && !limited.contains(advisorAction) && filtered.contains(advisorAction)) {
+                    limited.set(0, advisorAction);
+                }
+                filtered = limited;
             }
-            if (endTurn != null && !limited.contains(endTurn)) {
-                limited.set(limited.size() - 1, endTurn);
-            }
-            if (params.staticPriors && root && advisorAction != null && !limited.contains(advisorAction) && filtered.contains(advisorAction)) {
-                limited.set(0, advisorAction);
-            }
-            filtered = limited;
         }
 
         return filtered;
+    }
+
+    private ArrayList<Action> sampledPrefilter(ArrayList<Action> actions, Action endTurn, boolean root) {
+        ArrayList<Action> pool = new ArrayList<>(actions);
+        ArrayList<Action> limited = new ArrayList<>();
+        int limit = Math.max(1, params.prefilterActions);
+
+        if (params.staticPriors && root && advisorAction != null && pool.remove(advisorAction)) {
+            limited.add(advisorAction);
+        }
+
+        double temperature = Math.max(0.05, params.sampledPrefilterTemperature);
+        while (limited.size() < limit && !pool.isEmpty()) {
+            double sum = 0.0;
+            double[] weights = new double[pool.size()];
+            for (int i = 0; i < pool.size(); i++) {
+                double score = staticActionScore(pool.get(i));
+                double clipped = Math.max(-5.0, Math.min(5.0, score / temperature));
+                weights[i] = Math.exp(clipped);
+                sum += weights[i];
+            }
+
+            double pick = rnd.nextDouble() * Math.max(1e-12, sum);
+            int selected = pool.size() - 1;
+            double running = 0.0;
+            for (int i = 0; i < pool.size(); i++) {
+                running += weights[i];
+                if (running >= pick) {
+                    selected = i;
+                    break;
+                }
+            }
+            limited.add(pool.remove(selected));
+        }
+
+        if (endTurn != null && !limited.contains(endTurn)) {
+            if (limited.size() < limit) {
+                limited.add(endTurn);
+            } else {
+                limited.set(limited.size() - 1, endTurn);
+            }
+        }
+        return limited;
     }
 
     private double evaluateLeaf(GameState leafState) {
