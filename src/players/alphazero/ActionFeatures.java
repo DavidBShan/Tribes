@@ -140,7 +140,7 @@ public final class ActionFeatures {
         }
     }
 
-    private static Unit unitFor(GameState state, Action action) {
+    static Unit unitFor(GameState state, Action action) {
         if (!(action instanceof UnitAction)) {
             return null;
         }
@@ -148,7 +148,7 @@ public final class ActionFeatures {
         return actor instanceof Unit ? (Unit) actor : null;
     }
 
-    private static City cityFor(GameState state, Action action) {
+    static City cityFor(GameState state, Action action) {
         if (!(action instanceof CityAction)) {
             return null;
         }
@@ -156,7 +156,7 @@ public final class ActionFeatures {
         return actor instanceof City ? (City) actor : null;
     }
 
-    private static Vector2d targetPosition(GameState state, Action action, Unit unit, City city) {
+    static Vector2d targetPosition(GameState state, Action action, Unit unit, City city) {
         if (action instanceof Move) {
             return ((Move) action).getDestination();
         }
@@ -177,7 +177,7 @@ public final class ActionFeatures {
         return unit != null ? unit.getPosition() : city == null ? null : city.getPosition();
     }
 
-    private static Unit targetUnitFor(GameState state, Action action) {
+    static Unit targetUnitFor(GameState state, Action action) {
         int targetId = -1;
         if (action instanceof Attack) {
             targetId = ((Attack) action).getTargetId();
@@ -191,7 +191,7 @@ public final class ActionFeatures {
         return actor instanceof Unit ? (Unit) actor : null;
     }
 
-    private static City targetCityFor(GameState state, Action action) {
+    static City targetCityFor(GameState state, Action action) {
         if (!(action instanceof Capture)) {
             return null;
         }
