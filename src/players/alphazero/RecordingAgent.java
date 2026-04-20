@@ -31,6 +31,9 @@ public class RecordingAgent extends Agent {
     private final double terminalPositionBlend;
     private final double rankValueBlend;
     private final double survivalValueBlend;
+    private final double dangerSampleMultiplier;
+    private final double dangerPositionThreshold;
+    private final double dangerPositionBlend;
     private final int maxExamplesPerGame;
     private final int maxTrajectoriesPerGame;
     private final boolean recordValueExamples;
@@ -47,7 +50,7 @@ public class RecordingAgent extends Agent {
         this(delegate, "unknown", datasetPath, policyDatasetPath, null, null, new JSONObject(),
                 -1, -1, sampleProbability, maxExamplesPerGame, 0.0, 0, "action",
                 ModelFactory.LINEAR, ModelFactory.LINEAR, 0.0, 0.0,
-                0.0, 0.0, true, true, seed);
+                0.0, 0.0, 1.0, -0.35, 0.0, true, true, seed);
     }
 
     public RecordingAgent(Agent delegate, String botName, String datasetPath, String policyDatasetPath,
@@ -58,6 +61,8 @@ public class RecordingAgent extends Agent {
                           String policyTargetMode, String featureMode, String actionFeatureMode,
                           double valuePositionBlend, double terminalPositionBlend,
                           double rankValueBlend, double survivalValueBlend,
+                          double dangerSampleMultiplier, double dangerPositionThreshold,
+                          double dangerPositionBlend,
                           boolean recordValueExamples, boolean recordPolicyExamples, long seed) {
         super(seed);
         this.delegate = delegate;
@@ -80,6 +85,9 @@ public class RecordingAgent extends Agent {
         this.terminalPositionBlend = Math.max(0.0, Math.min(1.0, terminalPositionBlend));
         this.rankValueBlend = Math.max(0.0, Math.min(1.0, rankValueBlend));
         this.survivalValueBlend = Math.max(0.0, Math.min(1.0, survivalValueBlend));
+        this.dangerSampleMultiplier = Math.max(1.0, dangerSampleMultiplier);
+        this.dangerPositionThreshold = Math.max(-1.0, Math.min(1.0, dangerPositionThreshold));
+        this.dangerPositionBlend = Math.max(0.0, Math.min(1.0, dangerPositionBlend));
         this.recordValueExamples = recordValueExamples;
         this.recordPolicyExamples = recordPolicyExamples;
         this.rnd = new Random(seed);
@@ -96,11 +104,15 @@ public class RecordingAgent extends Agent {
     @Override
     public Action act(GameState gs, ElapsedCpuTimer ect) {
         double[] features = FeatureInputs.extract(featureMode, gs, playerID, allPlayerIDs);
+        double positionLabel = StateFeatures.positionValue(gs, playerID, allPlayerIDs);
+        double valueSampleProbability = sampleProbability;
+        if (positionLabel <= dangerPositionThreshold) {
+            valueSampleProbability = Math.min(1.0, sampleProbability * dangerSampleMultiplier);
+        }
         boolean sampled = recordValueExamples
                 && pending.size() < maxExamplesPerGame
-                && rnd.nextDouble() <= sampleProbability;
+                && rnd.nextDouble() <= valueSampleProbability;
         if (sampled) {
-            double positionLabel = StateFeatures.positionValue(gs, playerID, allPlayerIDs);
             pending.add(new ValueTrainingExample(0.0, features, positionLabel));
         }
         boolean sampledPolicy = recordPolicyExamples
@@ -258,8 +270,12 @@ public class RecordingAgent extends Agent {
         }
         ArrayList<ValueTrainingExample> labeled = new ArrayList<>();
         for (ValueTrainingExample example : pending) {
-            double blended = StateFeatures.clamp((1.0 - valuePositionBlend) * label
-                    + valuePositionBlend * example.positionLabel);
+            double localPositionBlend = valuePositionBlend;
+            if (example.positionLabel <= dangerPositionThreshold) {
+                localPositionBlend = Math.max(localPositionBlend, dangerPositionBlend);
+            }
+            double blended = StateFeatures.clamp((1.0 - localPositionBlend) * label
+                    + localPositionBlend * example.positionLabel);
             labeled.add(new ValueTrainingExample(blended, example.features));
         }
         ValueDataset.append(datasetPath, labeled);
@@ -276,6 +292,7 @@ public class RecordingAgent extends Agent {
                 trajectoryWriter, setupMetadata, episode, seat, sampleProbability, maxExamplesPerGame,
                 trajectorySampleProbability, maxTrajectoriesPerGame, policyTargetMode,
                 featureMode, actionFeatureMode, valuePositionBlend, terminalPositionBlend, rankValueBlend, survivalValueBlend,
+                dangerSampleMultiplier, dangerPositionThreshold, dangerPositionBlend,
                 recordValueExamples, recordPolicyExamples, seed);
     }
 }
