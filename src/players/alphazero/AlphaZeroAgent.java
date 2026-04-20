@@ -163,6 +163,12 @@ public class AlphaZeroAgent extends Agent {
     }
 
     private int runTreeSimulationFrom(Node start) {
+        if (start.visits == 0) {
+            double value = evaluateLeaf(start.state);
+            start.backup(value);
+            return 1;
+        }
+
         Node leaf = start;
         while (leaf.expanded && !leaf.state.isGameOver()
                 && leaf.depth < params.ROLLOUT_LENGTH && !leaf.children.isEmpty()) {
