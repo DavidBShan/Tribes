@@ -5,6 +5,7 @@ import core.actors.City;
 import core.actors.Tribe;
 import core.actors.units.Unit;
 import core.game.GameState;
+import utils.Vector2d;
 
 import java.util.ArrayList;
 
@@ -173,12 +174,14 @@ public final class StateFeatures {
 
         double cityDeficit = Math.max(0.0, bestOtherCities - myCities);
         double capitalSafety = controlsCapital ? 1.8 : -2.6;
+        double cityPressure = cityPressureRaw(state, playerID, allIds);
         double raw = 1.75 * (myCities - bestOtherCities)
                 - 0.75 * cityDeficit
                 + 0.08 * (myProduction - bestOtherProduction)
                 + 0.04 * (myUnits - bestOtherUnits)
                 + 0.00025 * (myScore - bestOtherScore)
-                + capitalSafety;
+                + capitalSafety
+                + 0.55 * cityPressure;
         return Math.tanh(raw / 3.0);
     }
 
@@ -201,8 +204,74 @@ public final class StateFeatures {
         double cityDelta = myCities - bestOtherCities;
         double productionDelta = state.getTribeProduction(playerID) - bestOtherProduction;
         double capitalSafety = state.getTribe(playerID).controlsCapital() ? 1.0 : -1.8;
-        double raw = 1.35 * cityDelta + 0.05 * productionDelta + capitalSafety;
+        double raw = 1.35 * cityDelta + 0.05 * productionDelta + capitalSafety
+                + 0.65 * cityPressureRaw(state, playerID, allIds);
         return Math.tanh(raw / 3.0);
+    }
+
+    private static double cityPressureRaw(GameState state, int playerID, ArrayList<Integer> allIds) {
+        ArrayList<City> myCities = state.getCities(playerID);
+        if (myCities.isEmpty()) {
+            return -3.0;
+        }
+
+        ArrayList<Unit> myUnits = state.getUnits(playerID);
+        ArrayList<Unit> enemyUnits = new ArrayList<>();
+        ArrayList<City> enemyCities = new ArrayList<>();
+        for (Integer id : allIds) {
+            if (id == playerID) {
+                continue;
+            }
+            enemyUnits.addAll(state.getUnits(id));
+            enemyCities.addAll(state.getCities(id));
+        }
+
+        double threat = 0.0;
+        double cover = 0.0;
+        for (City city : myCities) {
+            double weight = city.isCapital() ? 1.65 : 1.0;
+            double enemyDistance = nearestDistance(city.getPosition(), enemyUnits);
+            if (enemyDistance <= 1.0) {
+                threat += 2.2 * weight;
+            } else if (enemyDistance <= 2.0) {
+                threat += 1.1 * weight;
+            } else if (enemyDistance <= 3.0) {
+                threat += 0.45 * weight;
+            }
+
+            double ownDistance = nearestDistance(city.getPosition(), myUnits);
+            if (ownDistance <= 1.0) {
+                cover += 0.8 * weight;
+            } else if (ownDistance <= 2.0) {
+                cover += 0.35 * weight;
+            }
+        }
+
+        double pressure = 0.0;
+        for (City city : enemyCities) {
+            double distance = nearestDistance(city.getPosition(), myUnits);
+            if (distance <= 1.0) {
+                pressure += city.isCapital() ? 1.3 : 0.8;
+            } else if (distance <= 2.0) {
+                pressure += city.isCapital() ? 0.65 : 0.4;
+            }
+        }
+
+        return Math.max(-5.0, Math.min(4.0, cover + pressure - threat));
+    }
+
+    private static double nearestDistance(Vector2d pos, ArrayList<Unit> units) {
+        if (pos == null || units == null || units.isEmpty()) {
+            return Double.POSITIVE_INFINITY;
+        }
+        double best = Double.POSITIVE_INFINITY;
+        for (Unit unit : units) {
+            if (unit.getPosition() == null) {
+                continue;
+            }
+            best = Math.min(best, Vector2d.chebychevDistance(pos, unit.getPosition()));
+        }
+        return best;
     }
 
     private static double[] metrics(GameState state, int playerID) {
